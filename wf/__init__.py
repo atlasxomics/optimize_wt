@@ -6,7 +6,7 @@ from latch.types.file import LatchFile
 from latch.types.metadata import LatchAuthor, LatchMetadata, LatchParameter
 
 metadata = LatchMetadata(
-    display_name="atx_wt",
+    display_name="optimize_wt",
     author=LatchAuthor(
         name="James McGann",
     ),
