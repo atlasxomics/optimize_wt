@@ -17,7 +17,7 @@ logging.basicConfig(
 
 
 gene_keys = {
-    "mitochondiral": {"hg38": "MT-", "mm10": "mt-"},
+    "mitochondiral": {"hg38": "MT-", "mm10": ("Mt-", "mt-")},
     "ribosomal":  {"hg38": ("RPS", "RPL"), "mm10": ("Rps", "Rpl")}
 }
 

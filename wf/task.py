@@ -2,13 +2,14 @@ import copy
 import itertools
 import logging
 import os
+import subprocess
 from typing import List, Optional
 
 import anndata as ad
 import scanpy as sc
 
 from latch import message
-from latch.resources.tasks import custom_task
+from latch.resources.tasks import medium_task
 from latch.types import LatchDir
 
 import wf.plotting as pl
@@ -21,7 +22,7 @@ logging.basicConfig(
 )
 
 
-@custom_task(cpu=62, memory=576, storage_gib=4949)
+@medium_task
 def wtOpt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
@@ -85,9 +86,44 @@ def wtOpt_task(
 
     # Add addtional QCs
     pp.calculate_qc(adata, genome)
+
+    sc.pl.violin(
+        adata,
+        ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+        jitter=False,
+        stripplot=False,
+        multi_panel=True,
+        save="_preFiltering"
+    )
+
     adata = pp.filter_adata(adata, min_cells=min_cells, min_genes=min_genes)
 
+    sc.pl.violin(
+        adata,
+        ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+        jitter=False,
+        stripplot=False,
+        multi_panel=True,
+        save="_postFiltering"
+    )
+
     adata = pp.add_spatial(adata)  # Add spatial coordinates to tixels
+
+    # Normalize and scale
+    adata.layers["counts"] = adata.X.copy()  # Save counts
+
+    sc.pp.normalize_total(adata)
+    adata.layers["normalized"] = adata.X.copy()
+
+    sc.pp.log1p(adata)
+    adata.layers["log1p"] = adata.X.copy()
+
+    sc.pp.highly_variable_genes(
+        adata, n_top_genes=2000, flavor="seurat", batch_key="sample"
+    )
+
+    # Perform scaling as in Seurat
+    sc.pp.scale(adata, zero_center=True, max_value=10)
 
     # Iterate through parameter sets ------------------------------------------
     adata_dict = {}
@@ -98,28 +134,11 @@ def wtOpt_task(
             logging.info(f"Set {count}: clustering resolution {cr}, number of \
                     components {nc}, neighborhood size  {nn}")
             cr_str = str(cr).replace(".", "-")
-            set_str = f"set{count}_cr{cr_str}-nc{nc}"
+            set_str = f"set{count}_cr{cr_str}-nc{nc}-nn{nn}"
             set_dir = f"{out_dir}/{set_str}"
             os.makedirs(set_dir, exist_ok=True)
 
             adata_i = copy.deepcopy(adata)
-
-            # Normalize and scale
-            adata_i.layers["counts"] = adata_i.X.copy()  # Save counts
-
-            sc.pp.normalize_total(adata_i)
-            adata_i.layers["normalized"] = adata_i.X.copy()
-
-            sc.pp.log1p(adata_i)
-            adata_i.layers["log1p"] = adata_i.X.copy()
-
-            # sc.pp.highly_variable_genes(adata_i, n_top_genes=2000, flavor="seurat", batch_key="sample")
-            sc.pp.highly_variable_genes(
-                adata_i, n_top_genes=2000, flavor="seurat", batch_key="sample"
-            )
-
-            # Perform scaling as in Seurat
-            sc.pp.scale(adata_i, zero_center=True, max_value=10)
 
             logging.info(
                 f"Performing dimensionality reduction with resolution {cr}, \
@@ -197,4 +216,8 @@ def wtOpt_task(
     medians_df.to_csv(f"{out_dir}/medians.csv", index=False)
 
     # Upload data -------------------------------------------------------------
+
+    # Move scanpy plots
+    subprocess.run([f"mv /root/figures/* {figures_dir}"], shell=True)
+
     return LatchDir(out_dir, f"latch:///snap_opts/{project_name}")
