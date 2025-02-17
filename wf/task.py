@@ -190,8 +190,6 @@ def wtOpt_task(
         f"{figures_dir}/spatial_qc.pdf",
         pt_size=qc_pt_size
     )
-    # Violin Plots
-    # Elbow plot
 
     # Medians -----------------------------------------------------------------
 
