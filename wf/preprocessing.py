@@ -21,12 +21,15 @@ def add_clusters(
     resolution: float,
     n_comps: int,  # Add n_neighbors to umap
     n_neighbors: int,
+    pca_plot=True,
 ) -> anndata.AnnData:
     """Perform dimensionality reduction, batch correction, umap, clustering.
     """
 
     # Dimensionality reduction
     sc.tl.pca(adata, n_comps=n_comps)
+    if pca_plot:
+        sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save="_elbow")
 
     try:
         n_runs = len(adata.obs["sample"].unique())
