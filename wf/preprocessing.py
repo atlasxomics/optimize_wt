@@ -21,7 +21,9 @@ def add_clusters(
     resolution: float,
     n_comps: int,  # Add n_neighbors to umap
     n_neighbors: int,
-    pca_plot=True,
+    min_dist: float,
+    spread: float,
+    pca_plot: bool = True,
 ) -> anndata.AnnData:
     """Perform dimensionality reduction, batch correction, umap, clustering.
     """
@@ -48,7 +50,7 @@ def add_clusters(
     sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=rep)
 
     # Add umap, nearest neightbors, clusters to .obs
-    sc.tl.umap(adata)  # Add min_dist, spread
+    sc.tl.umap(adata, min_dist=min_dist, spread=spread)
     sc.tl.leiden(adata, resolution=resolution, key_added="cluster")
 
     return adata

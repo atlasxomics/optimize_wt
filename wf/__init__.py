@@ -60,6 +60,25 @@ metadata = LatchMetadata(
                 values result in more clusters.",
             batch_table_column=True
         ),
+        "min_dist": LatchParameter(
+            display_name="umap minimum distance",
+            description="'The effective minimum distance between embedded \
+                points. Smaller values will result in a more \
+                clustered/clumped embedding where nearby points on the \
+                manifold are drawn closer together, while larger values \
+                will result on a more even dispersal of points. The value \
+                should be set relative to the spread value, which determines \
+                the scale at which embedded points will be spread out.' - \
+                Scanpy docs",
+            batch_table_column=True
+        ),
+        "spread": LatchParameter(
+            display_name="umap spread",
+            description="'The effective scale of embedded points. In \
+                combination with min_dist this determines how \
+                clustered/clumped the embedded points are.' - Scanpy docs",
+            batch_table_column=True
+        ),
         "min_genes": LatchParameter(
             display_name="minimum genes",
             description="Threshold for filtering cell from AnnData object.",
@@ -96,6 +115,8 @@ def wtOpt_workflow(
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
     n_neighbors: List[int] = [15],
+    min_dist: List[float] = [0.5],
+    spread: List[float] = [1.0],
     min_genes: int = 1,
     min_cells: int = 1,
     pt_size: Optional[float] = None,
@@ -114,6 +135,8 @@ def wtOpt_workflow(
         n_neighbors=n_neighbors,
         min_genes=min_genes,
         min_cells=min_cells,
+        min_dist=min_dist,
+        spread=spread,
         pt_size=pt_size,
         qc_pt_size=qc_pt_size
     )

@@ -30,6 +30,8 @@ def wtOpt_task(
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
     n_neighbors: List[int] = [15],
+    min_dist: List[float] = [0.5],
+    spread: List[float] = [1.0],
     min_genes: int = 0,
     min_cells: int = 0,
     pt_size: Optional[float] = None,
@@ -71,7 +73,9 @@ def wtOpt_task(
     pd.DataFrame([locals()]).to_csv(f"{out_dir}/metadata.csv", index=False)
 
     # Build sets of parameters --
-    sets = list(itertools.product(resolution, n_comps, n_neighbors))
+    sets = list(itertools.product(
+        resolution, n_comps, n_neighbors, min_dist, spread
+    ))
     logging.info(f"Iterating through paramter sets {sets}...")
 
     # Create AnnData objects --------------------------------------------------
@@ -130,11 +134,13 @@ def wtOpt_task(
     count = 1
     for set in sets:
         try:
-            cr, nc, nn = set
+            cr, nc, nn, md, sp = set
             logging.info(f"Set {count}: clustering resolution {cr}, number of \
-                    components {nc}, neighborhood size  {nn}")
-            cr_str = str(cr).replace(".", "-")
-            set_str = f"set{count}_cr{cr_str}-nc{nc}-nn{nn}"
+                    components {nc}, neighborhood size {nn}, umap minimum \
+                    {md}, umap spread {sp}.")
+            cr_str, md_str, sp_str = [str(param).replace(".", "-")
+                                      for param in [cr, md, sp]]
+            set_str = f"set{count}_cr{cr_str}-nc{nc}-nn{nn}-md{md_str}-sp{sp_str}"
             set_dir = f"{out_dir}/{set_str}"
             os.makedirs(set_dir, exist_ok=True)
 
@@ -144,7 +150,7 @@ def wtOpt_task(
                 f"Performing dimensionality reduction with resolution {cr}, \
             number of components {nc}, neighborhood size {nn}..."
             )
-            adata_i = pp.add_clusters(adata_i, cr, nc, nn)
+            adata_i = pp.add_clusters(adata_i, cr, nc, nn, md, sp)
 
             adata_dict[set_str] = adata_i
             adata_i.write(f"{set_dir}/combined.h5ad")
@@ -155,8 +161,7 @@ def wtOpt_task(
                 typ="warning",
                 data={
                     "title": "failed set",
-                    "body": f"set {count} with clustering resolution {cr}, \
-                        number of components {nc} failed with Exception '{e}'"
+                    "body": f"set {count} failed with Exception '{e}'"
                 }
             )
 
@@ -218,4 +223,4 @@ def wtOpt_task(
     # Move scanpy plots
     subprocess.run([f"mv /root/figures/* {figures_dir}"], shell=True)
 
-    return LatchDir(out_dir, f"latch:///snap_opts/{project_name}")
+    return LatchDir(out_dir, f"latch:///wt_opts/{project_name}")
