@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from wf.utils import gene_keys, get_LatchFile, Genome, Run
+from wf.utils import gene_keys, get_LatchFile, Run
 
 
 logging.basicConfig(
@@ -19,16 +19,14 @@ logging.basicConfig(
 def add_clusters(
     adata: anndata.AnnData,
     resolution: float,
-    n_comps: int,
-    min_cluster_size: int
+    n_comps: int,  # Add n_neighbors to umap
+    n_neighbors: int,
 ) -> anndata.AnnData:
     """Perform dimensionality reduction, batch correction, umap, clustering.
     """
 
     # Dimensionality reduction
-    snap.tl.spectral(  # First reduce to n_comps demensions
-        adata, n_comps=n_comps, features="selected"
-    )
+    sc.tl.pca(adata, n_comps=n_comps)
 
     try:
         n_runs = len(adata.obs["sample"].unique())
@@ -39,21 +37,16 @@ def add_clusters(
 
     if n_runs > 1:
         logging.info("Performing batch correction with Harmony...")
-        snap.pp.harmony(adata, batch="sample", max_iter_harmony=20)
-        rep = "X_spectral_harmony"
+        sc.external.pp.harmony(adata, batch="sample")
+        rep = "X_pca_harmony"
     else:
-        rep = "X_spectral"
+        rep = "X_pca"
+
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=rep)
 
     # Add umap, nearest neightbors, clusters to .obs
-    snap.tl.umap(adata, use_rep=rep)
-    snap.pp.knn(adata, use_rep=rep)
-    snap.tl.leiden(
-        adata,
-        resolution=resolution,
-        min_cluster_size=min_cluster_size,
-        n_iterations=-1,
-        key_added="cluster"
-    )
+    sc.tl.umap(adata)  # Add min_dist, spread
+    sc.tl.leiden(adata, resolution=resolution, key_added="cluster")
 
     return adata
 
@@ -110,7 +103,7 @@ def calculate_qc(adata: anndata.AnnData, genome: str) -> None:
 
 
 def filter_adata(
-    adata: anndata.AnnData, min_cells: int = 0, min_genes: int = 0
+    adata: anndata.AnnData, min_cells: int = 1, min_genes: int = 1
 ) -> anndata.AnnData:
     """Filter AnnData by on/off tissue tixels, min genes per cell, min cells
     per gene.

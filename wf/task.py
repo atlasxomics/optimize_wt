@@ -1,3 +1,4 @@
+import copy
 import itertools
 import logging
 import os
@@ -27,12 +28,23 @@ def wtOpt_task(
     project_name: str,
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
+    n_neighbors: List[int] = [15],
     min_genes: int = 0,
     min_cells: int = 0,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None
 ) -> LatchDir:
     import pandas as pd
+
+    if min_genes == 0:
+        warning = "Minimum genes set to 0"
+        logging.warning(warning)
+        message(typ="warning", data={"title": warning, "body": warning})
+
+    if min_cells == 0:
+        warning = "Minimum cells set to 0"
+        logging.warning(warning)
+        message(typ="warning", data={"title": warning, "body": warning})
 
     samples = [run.run_id for run in runs]
 
@@ -55,10 +67,10 @@ def wtOpt_task(
             logging.warning("Minimum fragments set to 0.")
 
     # Save input parameters to csv
-    pd.DataFrame([locals()]).to_csv("metadata.csv", index=False)
+    pd.DataFrame([locals()]).to_csv(f"{out_dir}/metadata.csv", index=False)
 
     # Build sets of parameters --
-    sets = list(itertools.product(resolution, n_comps))
+    sets = list(itertools.product(resolution, n_comps, n_neighbors))
     logging.info(f"Iterating through paramter sets {sets}...")
 
     # Create AnnData objects --------------------------------------------------
@@ -75,44 +87,48 @@ def wtOpt_task(
     pp.calculate_qc(adata, genome)
     adata = pp.filter_adata(adata, min_cells=min_cells, min_genes=min_genes)
 
+    adata = pp.add_spatial(adata)  # Add spatial coordinates to tixels
+
     # Iterate through parameter sets ------------------------------------------
     adata_dict = {}
     count = 1
     for set in sets:
         try:
-            cr, nc = set
-            logging.info(f"Set {count}: clustering resolution {cr}, number of components {nc}")
+            cr, nc, nn = set
+            logging.info(f"Set {count}: clustering resolution {cr}, number of \
+                    components {nc}, neighborhood size  {nn}")
             cr_str = str(cr).replace(".", "-")
             set_str = f"set{count}_cr{cr_str}-nc{nc}"
             set_dir = f"{out_dir}/{set_str}"
             os.makedirs(set_dir, exist_ok=True)
 
+            adata_i = copy.deepcopy(adata)
+
             # Normalize and scale
-            adata.layers["counts"] = adata.X.copy()  # Save counts
+            adata_i.layers["counts"] = adata_i.X.copy()  # Save counts
 
-            sc.pp.normalize_total(adata)
-            adata.layers["normalized"] = adata.X.copy()
+            sc.pp.normalize_total(adata_i)
+            adata_i.layers["normalized"] = adata_i.X.copy()
 
-            sc.pp.log1p(adata)
-            adata.layers["log1p"] = adata.X.copy()
+            sc.pp.log1p(adata_i)
+            adata_i.layers["log1p"] = adata_i.X.copy()
 
+            # sc.pp.highly_variable_genes(adata_i, n_top_genes=2000, flavor="seurat", batch_key="sample")
             sc.pp.highly_variable_genes(
-                adata, n_top_genes=2000, flavor="seurat", batch_key="sample"
+                adata_i, n_top_genes=2000, flavor="seurat", batch_key="sample"
             )
 
             # Perform scaling as in Seurat
-            sc.pp.scale(adata, zero_center=True, max_value=10)
+            sc.pp.scale(adata_i, zero_center=True, max_value=10)
 
-        #     logging.info(
-        #         f"Performing dimensionality reduction with resolution {cr}, \
-        #         number of components {nc}..."
-        #     )
-        #     adata = pp.add_clusters(adata, cr, nc)
+            logging.info(
+                f"Performing dimensionality reduction with resolution {cr}, \
+            number of components {nc}, neighborhood size {nn}..."
+            )
+            adata_i = pp.add_clusters(adata_i, cr, nc, nn)
 
-        #     adata = pp.add_spatial(adata)  # Add spatial coordinates to tixels
-
-        #     adata_dict[set_str] = adata
-            adata.write(f"{set_dir}/combined.h5ad")
+            adata_dict[set_str] = adata_i
+            adata_i.write(f"{set_dir}/combined.h5ad")
 
         except Exception as e:
             logging.warning(f"Exception for set {count}: {e}")
@@ -131,30 +147,30 @@ def wtOpt_task(
     figures_dir = f"{out_dir}/figures"
     os.makedirs(figures_dir, exist_ok=True)
 
-    # pl.combine_umaps(adata_dict, f"{figures_dir}/all_umaps.pdf")
+    pl.combine_umaps(adata_dict, f"{figures_dir}/all_umaps.pdf")
 
-    # pt_size = (
-    #     pt_size if pt_size is not None
-    #     else utils.pt_sizes[channels]["dim"]
-    # )
-    # pl.combine_spatials(
-    #     adata_dict,
-    #     samples,
-    #     f"{figures_dir}/all_spatialdim.pdf",
-    #     pt_size=pt_size
-    # )
+    pt_size = (
+        pt_size if pt_size is not None
+        else utils.pt_sizes[channels]["dim"]
+    )
+    pl.combine_spatials(
+        adata_dict,
+        samples,
+        f"{figures_dir}/all_spatialdim.pdf",
+        pt_size=pt_size
+    )
 
-    # qc_pt_size = (
-    #     qc_pt_size if qc_pt_size is not None
-    #     else utils.pt_sizes[channels]["qc"]
-    # )
-    # pl.plot_spatial_qc(
-    #     adata,
-    #     samples,
-    #     qc_metrics,
-    #     f"{figures_dir}/spatial_qc.pdf",
-    #     pt_size=qc_pt_size
-    # )
+    qc_pt_size = (
+        qc_pt_size if qc_pt_size is not None
+        else utils.pt_sizes[channels]["qc"]
+    )
+    pl.plot_spatial_qc(
+        adata,
+        samples,
+        qc_metrics,
+        f"{figures_dir}/spatial_qc.pdf",
+        pt_size=qc_pt_size
+    )
     # Violin Plots
     # Elbow plot
 

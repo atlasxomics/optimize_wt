@@ -48,10 +48,26 @@ metadata = LatchMetadata(
                 dimensionality reduction with `scanpy.pp.pca`.",
             batch_table_column=True
         ),
+        "n_neighbors": LatchParameter(
+            display_name="neighborhood sizes",
+            description="The size of local neighborhood (number of cells) \
+                in `scanpy.pp.neighbors`.",
+            batch_table_column=True
+        ),
         "resolution": LatchParameter(
             display_name="clustering resolution",
             description="Clustering resolution for Leiden algorithm; higher \
                 values result in more clusters.",
+            batch_table_column=True
+        ),
+        "min_genes": LatchParameter(
+            display_name="minimum genes",
+            description="Threshold for filtering cell from AnnData object.",
+            batch_table_column=True
+        ),
+        "min_cells": LatchParameter(
+            display_name="minimum cells",
+            description="Threshold for filtering genes from AnnData object.",
             batch_table_column=True
         ),
         "pt_size": LatchParameter(
@@ -79,8 +95,9 @@ def wtOpt_workflow(
     project_name: str,
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
-    min_genes: int = 0,
-    min_cells: int = 0,
+    n_neighbors: List[int] = [15],
+    min_genes: int = 1,
+    min_cells: int = 1,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -94,6 +111,7 @@ def wtOpt_workflow(
         project_name=project_name,
         resolution=resolution,
         n_comps=n_comps,
+        n_neighbors=n_neighbors,
         min_genes=min_genes,
         min_cells=min_cells,
         pt_size=pt_size,

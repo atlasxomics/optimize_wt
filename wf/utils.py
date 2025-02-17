@@ -17,8 +17,8 @@ logging.basicConfig(
 
 
 gene_keys = {
-    "mitochondiral": {"hg38": "MT", "mm10": "Mt"},
-    "ribosomal":  {"hg38": ("RPS", "RPL"), "mm10": ("Rps", "RPpl")}
+    "mitochondiral": {"hg38": "MT-", "mm10": "mt-"},
+    "ribosomal":  {"hg38": ("RPS", "RPL"), "mm10": ("Rps", "Rpl")}
 }
 
 # Map DBiT channels to plot point sizes for various spatial plots
