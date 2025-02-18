@@ -19,7 +19,7 @@ logging.basicConfig(
 def add_clusters(
     adata: anndata.AnnData,
     resolution: float,
-    n_comps: int,  # Add n_neighbors to umap
+    n_comps: int,
     n_neighbors: int,
     min_dist: float,
     spread: float,
@@ -31,7 +31,7 @@ def add_clusters(
     # Dimensionality reduction
     sc.tl.pca(adata, n_comps=n_comps)
     if pca_plot:
-        sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save="_elbow")
+        sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save=f"_{n_comps}_elbow")
 
     try:
         n_runs = len(adata.obs["sample"].unique())
