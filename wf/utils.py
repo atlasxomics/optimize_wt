@@ -17,8 +17,12 @@ logging.basicConfig(
 
 
 gene_keys = {
-    "mitochondiral": {"hg38": "MT-", "mm10": ("Mt-", "mt-")},
-    "ribosomal":  {"hg38": ("RPS", "RPL"), "mm10": ("Rps", "Rpl")}
+    "mitochondiral": {
+        "hg38": "MT-", "mm10": ("Mt-", "mt-"), "mm39": ("Mt-", "mt-")
+    },
+    "ribosomal":  {
+        "hg38": ("RPS", "RPL"), "mm10": ("Rps", "Rpl"), "mm39": ("Rps", "Rpl")
+    }
 }
 
 # Map DBiT channels to plot point sizes for various spatial plots
@@ -33,6 +37,7 @@ pt_sizes = {
 class Genome(Enum):
     hg38 = "hg38"
     mm10 = "mm10"
+    m39 = "mm39"
     rnor6 = "rnor6"
 
 
