@@ -9,7 +9,7 @@ import anndata as ad
 import scanpy as sc
 
 from latch import message
-from latch.resources.tasks import medium_task
+from latch.resources.tasks import custom_task
 from latch.types import LatchDir
 
 import wf.plotting as pl
@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 
 
-@medium_task
+@custom_task(cpu=8, memory=128, storage_gib=1000)
 def wtOpt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
