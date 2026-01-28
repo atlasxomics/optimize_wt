@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 
 
-@custom_task(cpu=8, memory=128, storage_gib=1000)
+@custom_task(cpu=8, memory=384, storage_gib=1000)
 def wtOpt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
@@ -135,11 +135,14 @@ def wtOpt_task(
     for set in sets:
         try:
             cr, nc, nn, md, sp = set
-            logging.info(f"Set {count}: clustering resolution {cr}, number of \
-                    components {nc}, neighborhood size {nn}, umap minimum \
-                    {md}, umap spread {sp}.")
-            cr_str, md_str, sp_str = [str(param).replace(".", "-")
-                                      for param in [cr, md, sp]]
+            logging.info(
+                f"Set {count}: clustering resolution {cr}, number of "
+                f"components {nc}, neighborhood size {nn}, umap minimum "
+                f"{md}, umap spread {sp}."
+            )
+            cr_str, md_str, sp_str = [
+                str(param).replace(".", "-") for param in [cr, md, sp]
+            ]
             set_str = f"set{count}_cr{cr_str}-nc{nc}-nn{nn}-md{md_str}-sp{sp_str}"
             set_dir = f"{out_dir}/{set_str}"
             os.makedirs(set_dir, exist_ok=True)
