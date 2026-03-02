@@ -70,14 +70,16 @@ metadata = LatchMetadata(
                 should be set relative to the spread value, which determines \
                 the scale at which embedded points will be spread out.' - \
                 Scanpy docs",
-            batch_table_column=True
+            batch_table_column=True,
+            hidden=True
         ),
         "spread": LatchParameter(
             display_name="umap spread",
             description="'The effective scale of embedded points. In \
                 combination with min_dist this determines how \
                 clustered/clumped the embedded points are.' - Scanpy docs",
-            batch_table_column=True
+            batch_table_column=True,
+            hidden=True
         ),
         "min_genes": LatchParameter(
             display_name="minimum genes",

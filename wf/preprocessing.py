@@ -48,7 +48,7 @@ def add_clusters(
 
     if n_runs > 1:
         logging.info("Performing batch correction with Harmony...")
-        sc.external.pp.harmony(adata, batch="sample")
+        sc.external.pp.harmony_integrate(adata, batch="sample")
         rep = "X_pca_harmony"
     else:
         rep = "X_pca"
@@ -109,7 +109,7 @@ def add_spatial(
 ) -> anndata.AnnData:
     """Add move x and y coordinates from .obs to .obsm["spatial"] for squidpy.
     """
-    adata.obsm["spatial"] = adata.obs[[y_key, x_key]].values
+    adata.obsm["spatial"] = adata.obs[[x_key, y_key]].values
 
     return adata
 
