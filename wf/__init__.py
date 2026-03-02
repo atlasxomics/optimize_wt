@@ -89,6 +89,23 @@ metadata = LatchMetadata(
             description="Threshold for filtering genes from AnnData object.",
             batch_table_column=True
         ),
+        "min_counts": LatchParameter(
+            display_name="minimum counts",
+            description="Minimum UMI counts required for each spot/cell.",
+            batch_table_column=True
+        ),
+        "max_counts": LatchParameter(
+            display_name="maximum counts",
+            description="Maximum UMI counts allowed for each spot/cell. Set to \
+                0 to disable.",
+            batch_table_column=True
+        ),
+        "max_pct_mt": LatchParameter(
+            display_name="maximum mitochondrial percent",
+            description="Maximum percent mitochondrial counts per spot/cell. \
+                Set to 100 to disable.",
+            batch_table_column=True
+        ),
         "pt_size": LatchParameter(
             display_name="Override point size",
             description="Point size for spatial plot of clustering. \
@@ -119,6 +136,9 @@ def wtOpt_workflow(
     spread: List[float] = [1.0],
     min_genes: int = 1,
     min_cells: int = 1,
+    min_counts: int = 0,
+    max_counts: int = 0,
+    max_pct_mt: float = 100.0,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -135,6 +155,9 @@ def wtOpt_workflow(
         n_neighbors=n_neighbors,
         min_genes=min_genes,
         min_cells=min_cells,
+        min_counts=min_counts,
+        max_counts=max_counts,
+        max_pct_mt=max_pct_mt,
         min_dist=min_dist,
         spread=spread,
         pt_size=pt_size,

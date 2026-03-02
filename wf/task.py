@@ -16,6 +16,8 @@ import wf.plotting as pl
 import wf.preprocessing as pp
 import wf.utils as utils
 
+RANDOM_STATE = 42
+
 logging.basicConfig(
     format="%(levelname)s - %(asctime)s - %(message)s",
     level=logging.INFO
@@ -34,6 +36,9 @@ def wtOpt_task(
     spread: List[float] = [1.0],
     min_genes: int = 0,
     min_cells: int = 0,
+    min_counts: int = 0,
+    max_counts: int = 0,
+    max_pct_mt: float = 100.0,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None
 ) -> LatchDir:
@@ -65,7 +70,7 @@ def wtOpt_task(
     out_dir = f"/root/{project_name}"
     os.makedirs(out_dir, exist_ok=True)
 
-    for threshold in [min_cells, min_genes]:
+    for threshold in [min_cells, min_genes, min_counts]:
         if threshold == 0:
             logging.warning("Minimum fragments set to 0.")
 
@@ -90,8 +95,8 @@ def wtOpt_task(
 
     # Add addtional QCs
     pp.calculate_qc(adata, genome)
-    sc.settings.file_format_figs = "png"
 
+    sc.settings.file_format_figs = "png"
     sc.pl.violin(
         adata,
         ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
@@ -101,7 +106,14 @@ def wtOpt_task(
         save="_preFiltering"
     )
 
-    adata = pp.filter_adata(adata, min_cells=min_cells, min_genes=min_genes)
+    adata = pp.filter_adata(
+        adata,
+        min_cells=min_cells,
+        min_genes=min_genes,
+        min_counts=min_counts,
+        max_counts=max_counts,
+        max_pct_mt=max_pct_mt
+    )
 
     sc.pl.violin(
         adata,
@@ -154,7 +166,15 @@ def wtOpt_task(
                 f"Performing dimensionality reduction with resolution {cr}, \
             number of components {nc}, neighborhood size {nn}..."
             )
-            adata_i = pp.add_clusters(adata_i, cr, nc, nn, md, sp)
+            adata_i = pp.add_clusters(
+                adata_i,
+                cr,
+                nc,
+                nn,
+                md,
+                sp,
+                random_state=RANDOM_STATE
+            )
 
             adata_dict[set_str] = adata_i
             adata_i.write(f"{set_dir}/combined.h5ad")

@@ -23,13 +23,19 @@ def add_clusters(
     n_neighbors: int,
     min_dist: float,
     spread: float,
+    random_state: int = 0,
     pca_plot: bool = True,
 ) -> anndata.AnnData:
     """Perform dimensionality reduction, batch correction, umap, clustering.
     """
 
     # Dimensionality reduction
-    sc.tl.pca(adata, n_comps=n_comps)
+    sc.tl.pca(
+        adata,
+        n_comps=n_comps,
+        use_highly_variable=True,
+        random_state=random_state
+    )
     if pca_plot:
         sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save=f"_{n_comps}_elbow")
 
@@ -47,11 +53,26 @@ def add_clusters(
     else:
         rep = "X_pca"
 
-    sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=rep)
+    sc.pp.neighbors(
+        adata,
+        n_neighbors=n_neighbors,
+        use_rep=rep,
+        random_state=random_state
+    )
 
     # Add umap, nearest neightbors, clusters to .obs
-    sc.tl.umap(adata, min_dist=min_dist, spread=spread)
-    sc.tl.leiden(adata, resolution=resolution, key_added="cluster")
+    sc.tl.umap(
+        adata,
+        min_dist=min_dist,
+        spread=spread,
+        random_state=random_state
+    )
+    sc.tl.leiden(
+        adata,
+        resolution=resolution,
+        key_added="cluster",
+        random_state=random_state
+    )
 
     return adata
 
@@ -108,11 +129,20 @@ def calculate_qc(adata: anndata.AnnData, genome: str) -> None:
 
 
 def filter_adata(
-    adata: anndata.AnnData, min_cells: int = 1, min_genes: int = 1
+    adata: anndata.AnnData,
+    min_cells: int = 1,
+    min_genes: int = 1,
+    min_counts: int = 0,
+    max_counts: int = 0,
+    max_pct_mt: float = 100.0
 ) -> anndata.AnnData:
-    """Filter AnnData by on/off tissue tixels, min genes per cell, min cells
-    per gene.
+    """Filter AnnData by tissue status and basic QC thresholds.
+
+    `max_counts == 0` disables high-count filtering.
+    `max_pct_mt >= 100` disables mitochondrial filtering.
     """
+
+    n_before = adata.n_obs
 
     # Filter 'off tissue' tixels
     try:
@@ -123,7 +153,26 @@ def filter_adata(
         )
 
     sc.pp.filter_cells(adata, min_genes=min_genes)
+    if min_counts > 0:
+        sc.pp.filter_cells(adata, min_counts=min_counts)
+
+    if max_counts > 0:
+        adata = adata[adata.obs["total_counts"] <= max_counts].copy()
+
+    if max_pct_mt < 100:
+        if "pct_counts_mt" in adata.obs:
+            adata = adata[adata.obs["pct_counts_mt"] <= max_pct_mt].copy()
+        else:
+            logging.warning(
+                "pct_counts_mt not found in AnnData.obs; skipping mt filter."
+            )
+
     sc.pp.filter_genes(adata, min_cells=min_cells)
+    logging.info(
+        f"Filtered observations from {n_before} to {adata.n_obs} using "
+        f"min_genes={min_genes}, min_counts={min_counts}, "
+        f"max_counts={max_counts}, max_pct_mt={max_pct_mt}."
+    )
 
     return adata
 
