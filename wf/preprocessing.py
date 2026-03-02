@@ -109,7 +109,7 @@ def add_spatial(
 ) -> anndata.AnnData:
     """Add move x and y coordinates from .obs to .obsm["spatial"] for squidpy.
     """
-    adata.obsm["spatial"] = adata.obs[[x_key, y_key]].values
+    adata.obsm["spatial"] = adata.obs[[y_key, x_key]].values
 
     return adata
 
