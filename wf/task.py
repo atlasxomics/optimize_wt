@@ -90,6 +90,7 @@ def wtOpt_task(
 
     # Add addtional QCs
     pp.calculate_qc(adata, genome)
+    sc.settings.file_format_figs = "png"
 
     sc.pl.violin(
         adata,
@@ -174,7 +175,7 @@ def wtOpt_task(
     figures_dir = f"{out_dir}/figures"
     os.makedirs(figures_dir, exist_ok=True)
 
-    pl.combine_umaps(adata_dict, f"{figures_dir}/all_umaps.pdf")
+    pl.combine_umaps(adata_dict, f"{figures_dir}/all_umaps.png")
 
     pt_size = (
         pt_size if pt_size is not None
@@ -183,7 +184,7 @@ def wtOpt_task(
     pl.combine_spatials(
         adata_dict,
         samples,
-        f"{figures_dir}/all_spatialdim.pdf",
+        f"{figures_dir}/all_spatialdim.png",
         pt_size=pt_size
     )
 
@@ -195,7 +196,7 @@ def wtOpt_task(
         adata,
         samples,
         qc_metrics,
-        f"{figures_dir}/spatial_qc.pdf",
+        f"{figures_dir}/spatial_qc.png",
         pt_size=qc_pt_size
     )
 

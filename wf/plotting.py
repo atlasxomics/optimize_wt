@@ -3,18 +3,57 @@ import matplotlib.pyplot as plt
 import scanpy as sc
 import squidpy as sq
 
+import os
 from matplotlib.backends.backend_pdf import PdfPages
+from typing import Callable
 from typing import List
+
+
+def _get_page_saver(output_path: str) -> tuple[Callable, Callable]:
+    """Return a page saver and closer for PDF or image outputs.
+
+    For non-PDF outputs, figures are saved as numbered pages:
+    `<output_stem>_001.<ext>`, `<output_stem>_002.<ext>`, ...
+    """
+
+    ext = os.path.splitext(output_path)[1].lower()
+    page_idx = 1
+    pdf = PdfPages(output_path) if ext == ".pdf" else None
+    output_stem = os.path.splitext(output_path)[0] if ext else output_path
+    output_ext = ext if ext else ".png"
+
+    def save_page(fig):
+        nonlocal page_idx
+        if pdf is not None:
+            pdf.savefig(fig)
+            return
+
+        fig.savefig(
+            f"{output_stem}_{page_idx:03d}{output_ext}",
+            dpi=200,
+            bbox_inches="tight"
+        )
+        page_idx += 1
+
+    def close():
+        if pdf is not None:
+            pdf.close()
+
+    return save_page, close
 
 
 def combine_umaps(
     adata_dict: dict[str, anndata.AnnData], output_path: str
 ) -> None:
-    """Create a figure with UMAPs colored categorical metadata.
+    """Create a figure with UMAPs colored by categorical metadata.
+
+    If `output_path` ends in `.pdf`, a multipage PDF is written.
+    Otherwise, paginated image files are written.
     """
 
     sets = list(adata_dict.keys())
-    with PdfPages(output_path) as pdf:
+    save_page, close = _get_page_saver(output_path)
+    try:
         for i in range(0, len(sets), 4):
 
             batch = sets[i:i + 4]
@@ -37,8 +76,10 @@ def combine_umaps(
 
             plt.tight_layout()
 
-            pdf.savefig(fig)
-        plt.close(fig)
+            save_page(fig)
+            plt.close(fig)
+    finally:
+        close()
 
 
 def combine_spatials(
@@ -48,10 +89,14 @@ def combine_spatials(
     pt_size: float = 5.0
 ) -> None:
     """For each sample/condition, create a spatialdimplot colored by cluster.
+
+    If `output_path` ends in `.pdf`, a multipage PDF is written.
+    Otherwise, paginated image files are written.
     """
 
     sets = list(adata_dict.keys())
-    with PdfPages(output_path) as pdf:
+    save_page, close = _get_page_saver(output_path)
+    try:
         for sample in samples:
             for i in range(0, len(sets), 4):
 
@@ -78,8 +123,10 @@ def combine_spatials(
 
                 plt.tight_layout()
 
-                pdf.savefig(fig)
-        plt.close(fig)
+                save_page(fig)
+                plt.close(fig)
+    finally:
+        close()
 
 
 def plot_spatial_qc(
@@ -90,14 +137,15 @@ def plot_spatial_qc(
     pt_size: float = 25.0
 ):
     """Generates a grid of spatial scatter plots for each sample and QC metric,
-    saving them into a PDF.  Each row corresponds to a sample and each column
-    to a QC metric in .obs.
+    saving them into a multipage PDF or paginated image files. Each row
+    corresponds to a sample and each column to a QC metric in .obs.
     """
 
     rows_per_page = 3
     cols_per_page = len(qc_metrics)
 
-    with PdfPages(output_path) as pdf:
+    save_page, close = _get_page_saver(output_path)
+    try:
         for i in range(0, len(samples), rows_per_page):
 
             sample_batch = samples[i:i + rows_per_page]
@@ -130,5 +178,7 @@ def plot_spatial_qc(
                     cbar = fig.colorbar(ax.collections[0], ax=ax, shrink=0.7)
 
             plt.tight_layout()
-            pdf.savefig(fig)
+            save_page(fig)
             plt.close(fig)
+    finally:
+        close()
