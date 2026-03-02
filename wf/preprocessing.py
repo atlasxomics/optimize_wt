@@ -39,6 +39,7 @@ def add_clusters(
     if pca_plot:
         sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save=f"_{n_comps}_elbow")
 
+    n_runs = 1
     try:
         n_runs = len(adata.obs["sample"].unique())
     except KeyError as e:
@@ -57,6 +58,7 @@ def add_clusters(
         adata,
         n_neighbors=n_neighbors,
         use_rep=rep,
+        n_pcs=n_comps,
         random_state=random_state
     )
 
