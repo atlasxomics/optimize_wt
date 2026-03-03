@@ -195,7 +195,11 @@ def wtOpt_task(
     figures_dir = f"{out_dir}/figures"
     os.makedirs(figures_dir, exist_ok=True)
 
-    pl.combine_umaps(adata_dict, f"{figures_dir}/all_umaps.png")
+    pl.combine_umaps(
+        adata_dict,
+        f"{figures_dir}/all_umaps.png",
+        html_output_path=f"{out_dir}/all_umaps.html"
+    )
 
     pt_size = (
         pt_size if pt_size is not None
@@ -205,7 +209,8 @@ def wtOpt_task(
         adata_dict,
         samples,
         f"{figures_dir}/all_spatialdim.png",
-        pt_size=pt_size
+        pt_size=pt_size,
+        html_output_path=f"{out_dir}/all_spatialdim.html"
     )
 
     qc_pt_size = (
@@ -217,7 +222,8 @@ def wtOpt_task(
         samples,
         qc_metrics,
         f"{figures_dir}/spatial_qc.png",
-        pt_size=qc_pt_size
+        pt_size=qc_pt_size,
+        html_output_path=f"{out_dir}/spatial_qc.html"
     )
 
     # Medians -----------------------------------------------------------------
