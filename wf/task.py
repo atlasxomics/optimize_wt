@@ -129,7 +129,7 @@ def wtOpt_task(
     # Normalize and scale
     adata.layers["counts"] = adata.X.copy()  # Save counts
 
-    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.normalize_total(adata)
     adata.layers["normalized"] = adata.X.copy()
 
     sc.pp.log1p(adata)
