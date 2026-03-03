@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 
 
-@custom_task(cpu=8, memory=384, storage_gib=1000)
+@custom_task(cpu=8, memory=164, storage_gib=1000)
 def wtOpt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
