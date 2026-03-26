@@ -1,0 +1,47 @@
+{
+    "antibody": "",
+    "assay": "Transcriptome",
+    "barcode_filename": "bc220_05-OCT.txt",
+    "blockSize": 16,
+    "blocks_flowA": [],
+    "blocks_flowB": [],
+    "cValue": 3,
+    "chip_resolution": null,
+    "comments_flowA": "",
+    "comments_flowB": "",
+    "crop_area": [
+        203,
+        191,
+        8393,
+        8381
+    ],
+    "crosses_flowA": [],
+    "crosses_flowB": [],
+    "leak_flowA": "",
+    "leak_flowB": "",
+    "numChannels": 220,
+    "onTissueTixels": 0,
+    "organ": "brain",
+    "orientation": {
+        "horizontal_flip": false,
+        "rotation": 270,
+        "vertical_flip": false
+    },
+    "points": [
+        463.06021598154933,
+        577.3675867589201,
+        7686.162185863519,
+        668.972236060236,
+        7608.971563966898,
+        7880.8853677927,
+        372.1114540767876,
+        7828.996373355039
+    ],
+    "run": "D2042",
+    "sampleID": "",
+    "species": "mus_musculus",
+    "threshold": 210,
+    "tissueBlockExperiment": "",
+    "tissue_source": "",
+    "tissue_type": "fresh_frozen"
+}
