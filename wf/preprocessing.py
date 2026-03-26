@@ -1,6 +1,8 @@
 import anndata
 import scanpy as sc
 import logging
+import numpy as np
+import squidpy as sq
 
 from typing import List, Union
 from pathlib import Path
@@ -317,6 +319,92 @@ def add_spatial(
     adata.obsm["spatial"] = adata.obs[[y_key, x_key]].values
 
     return adata
+
+
+def add_spatial_neighbors(
+    adata: anndata.AnnData,
+    library_key: str = "sample"
+) -> anndata.AnnData:
+    """Build a within-sample spatial neighbor graph for coherence scoring.
+
+    Prefer a grid graph when the input resembles Visium-style array positions.
+    Fall back to generic spatial coordinates if grid graph construction fails.
+    """
+
+    try:
+        sq.gr.spatial_neighbors(
+            adata,
+            coord_type="grid",
+            n_rings=1,
+            library_key=library_key,
+        )
+    except Exception as grid_error:
+        logging.warning(
+            "Failed to build grid spatial neighbors (%s). Falling back to "
+            "generic spatial coordinates.",
+            grid_error,
+        )
+        sq.gr.spatial_neighbors(
+            adata,
+            coord_type="generic",
+            library_key=library_key,
+        )
+
+    return adata
+
+
+def morans_i(
+    connectivities: Union[sp.spmatrix, np.ndarray],
+    values: np.ndarray
+) -> float:
+    """Compute Moran's I from a connectivity matrix and numeric vector."""
+
+    if sp.issparse(connectivities):
+        weights = connectivities.tocsr().astype(float)
+    else:
+        weights = sp.csr_matrix(np.asarray(connectivities, dtype=float))
+
+    row_sums = np.asarray(weights.sum(axis=1)).ravel()
+    row_sums[row_sums == 0] = 1.0
+    weights = sp.diags(1.0 / row_sums) @ weights
+
+    centered = np.asarray(values, dtype=float) - np.mean(values)
+    denom = float(centered @ centered)
+    if denom == 0.0:
+        return 0.0
+
+    weighted_centered = weights @ centered
+
+    return float(centered @ weighted_centered / denom)
+
+
+def spatial_coherence_table(adata_dict: dict[str, anndata.AnnData]) -> pd.DataFrame:
+    """Summarize Moran's I spatial coherence for each clustered AnnData."""
+
+    rows = []
+    for set_name, adata in adata_dict.items():
+        if "spatial_connectivities" not in adata.obsp:
+            raise KeyError(
+                f"AnnData '{set_name}' is missing 'spatial_connectivities'."
+            )
+        if "cluster" not in adata.obs:
+            raise KeyError(f"AnnData '{set_name}' is missing 'cluster' labels.")
+
+        cluster_codes = (
+            adata.obs["cluster"].astype("category").cat.codes.to_numpy(dtype=float)
+        )
+        rows.append(
+            {
+                "set": set_name,
+                "n_clusters": int(adata.obs["cluster"].nunique()),
+                "morans_I": round(
+                    morans_i(adata.obsp["spatial_connectivities"], cluster_codes),
+                    4,
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def calculate_qc(adata: anndata.AnnData, genome: str) -> None:

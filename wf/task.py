@@ -126,6 +126,18 @@ def wtOpt_task(
 
     adata = pp.add_spatial(adata)  # Add spatial coordinates to tixels
 
+    has_spatial_graph = False
+    try:
+        adata = pp.add_spatial_neighbors(adata)
+        has_spatial_graph = "spatial_connectivities" in adata.obsp
+    except Exception as e:
+        warning = (
+            "Unable to build spatial neighbor graph for coherence scoring. "
+            f"Skipping spatial coherence outputs. Exception: {e}"
+        )
+        logging.warning(warning)
+        message(typ="warning", data={"title": "spatial coherence skipped", "body": warning})
+
     # Normalize and scale
     adata.layers["counts"] = adata.X.copy()  # Save counts
 
@@ -247,6 +259,29 @@ def wtOpt_task(
     )
 
     medians_df.to_csv(f"{out_dir}/medians.csv", index=False)
+
+    # Spatial coherence -------------------------------------------------------
+    if has_spatial_graph and len(adata_dict) > 0:
+        try:
+            coherence_df = pp.spatial_coherence_table(adata_dict)
+            coherence_df.to_csv(f"{out_dir}/spatial_coherence.csv", index=False)
+            pl.plot_spatial_coherence(
+                coherence_df,
+                f"{figures_dir}/spatial_coherence.png",
+            )
+        except Exception as e:
+            warning = (
+                "Spatial coherence calculation failed after clustering. "
+                f"Exception: {e}"
+            )
+            logging.warning(warning)
+            message(
+                typ="warning",
+                data={
+                    "title": "spatial coherence failed",
+                    "body": warning,
+                }
+            )
 
     # Upload data -------------------------------------------------------------
 

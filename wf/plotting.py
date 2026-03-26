@@ -305,3 +305,50 @@ def plot_spatial_qc(
             captions=page_captions,
             html_output_path=html_output_path
         )
+
+
+def plot_spatial_coherence(
+    coherence_df,
+    output_path: str,
+) -> None:
+    """Plot Moran's I spatial coherence versus number of clusters."""
+
+    if coherence_df.empty:
+        return
+
+    plot_df = coherence_df.sort_values(["n_clusters", "morans_I"]).reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.scatter(
+        plot_df["n_clusters"],
+        plot_df["morans_I"],
+        s=40,
+        color="steelblue",
+        edgecolors="black",
+        linewidths=0.4,
+    )
+    ax.plot(
+        plot_df["n_clusters"],
+        plot_df["morans_I"],
+        color="steelblue",
+        alpha=0.5,
+        linewidth=1.0,
+    )
+    ax.set_xlabel("Number of clusters")
+    ax.set_ylabel("Moran's I")
+    ax.set_title("Spatial coherence across parameter sets")
+    ax.grid(alpha=0.2, linewidth=0.5)
+
+    best_idx = plot_df["morans_I"].idxmax()
+    best = plot_df.loc[best_idx]
+    ax.annotate(
+        f"Best: {best['set']}",
+        (best["n_clusters"], best["morans_I"]),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=8,
+    )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
