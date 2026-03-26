@@ -6,6 +6,8 @@ from typing import List, Union
 from pathlib import Path
 
 import pandas as pd
+from scipy import io as sio
+from scipy import sparse as sp
 
 from wf.utils import gene_keys, get_LatchFile, Run, sanitize_condition
 
@@ -14,6 +16,207 @@ logging.basicConfig(
     format="%(levelname)s - %(asctime)s - %(message)s",
     level=logging.INFO
 )
+
+
+MTX_CANDIDATES = [
+    "UniqueAndMult-EM.mtx",
+    "UniqueAndMult-EM.mtx.gz",
+    "matrix.mtx",
+    "matrix.mtx.gz",
+]
+GENE_TABLE_CANDIDATES = [
+    "features.tsv.gz",
+    "features.tsv",
+    "genes.tsv",
+    "genes.tsv.gz",
+]
+BARCODE_CANDIDATES = [
+    "barcodes.tsv",
+    "barcodes.tsv.gz",
+]
+POSITION_CANDIDATES = [
+    "tissue_positions_list.csv",
+    "tissue_positions.csv",
+]
+
+
+def _resolve_local_file(directory: Union[Path, str], candidates: List[str]) -> Path:
+    directory = Path(directory)
+    for candidate in candidates:
+        candidate_path = directory / candidate
+        if candidate_path.exists():
+            return candidate_path
+
+    raise FileNotFoundError(
+        f"Could not find any of {candidates} in '{directory}'."
+    )
+
+
+def _resolve_spatial_file(run: Run, candidates: List[str]) -> Path:
+    spatial_dir = Path(run.spatial_dir.local_path)
+
+    try:
+        return _resolve_local_file(spatial_dir, candidates)
+    except FileNotFoundError:
+        pass
+
+    for candidate in candidates:
+        latch_file = get_LatchFile(run.spatial_dir, candidate)
+        if latch_file is not None:
+            return Path(latch_file.local_path)
+
+    raise FileNotFoundError(
+        f"Unable to resolve any of {candidates} for run '{run.run_id}' in "
+        f"'{run.spatial_dir.remote_path}'."
+    )
+
+
+def _deduplicate_gene_names(gene_names: pd.Series) -> List[str]:
+    seen: dict[str, int] = {}
+    unique_names: List[str] = []
+
+    for gene_name in gene_names.astype(str):
+        count = seen.get(gene_name, 0) + 1
+        seen[gene_name] = count
+        unique_names.append(
+            f"{gene_name}.{count}" if count > 1 else gene_name
+        )
+
+    return unique_names
+
+
+def _read_gene_table(gex_dir: Union[Path, str]) -> pd.DataFrame:
+    genes_path = _resolve_local_file(gex_dir, GENE_TABLE_CANDIDATES)
+    genes = pd.read_csv(genes_path, sep="\t", header=None)
+
+    if genes.shape[1] == 0:
+        raise ValueError(f"Gene table '{genes_path}' is empty.")
+
+    gene_ids = genes.iloc[:, 0].astype(str)
+    gene_names = genes.iloc[:, 1] if genes.shape[1] >= 2 else gene_ids.copy()
+
+    return pd.DataFrame(
+        {
+            "gene_id": gene_ids.to_numpy(),
+            "gene_name": _deduplicate_gene_names(gene_names),
+        }
+    )
+
+
+def _read_barcodes(gex_dir: Union[Path, str]) -> pd.Index:
+    barcodes_path = _resolve_local_file(gex_dir, BARCODE_CANDIDATES)
+    barcodes = pd.read_csv(barcodes_path, header=None).iloc[:, 0].astype(str)
+
+    return pd.Index(barcodes)
+
+
+def _read_count_matrix(
+    gex_dir: Union[Path, str],
+    n_barcodes: int,
+    n_genes: int
+) -> sp.csr_matrix:
+    matrix_path = _resolve_local_file(gex_dir, MTX_CANDIDATES)
+    matrix = sp.csr_matrix(sio.mmread(str(matrix_path)))
+
+    if matrix.shape == (n_genes, n_barcodes):
+        return matrix.T.tocsr()
+
+    if matrix.shape == (n_barcodes, n_genes):
+        return matrix.tocsr()
+
+    raise ValueError(
+        f"Count matrix '{matrix_path}' shape {matrix.shape} does not match "
+        f"{n_genes} genes and {n_barcodes} barcodes."
+    )
+
+
+def _read_positions(positions_file: Union[Path, str]) -> pd.DataFrame:
+    positions = pd.read_csv(positions_file, header=None)
+    column_names = ["barcode", "on_off", "row", "col", "xcor", "ycor"]
+
+    if positions.shape[1] < len(column_names):
+        raise ValueError(
+            f"Spatial positions file '{positions_file}' must have at least "
+            f"{len(column_names)} columns."
+        )
+
+    first_flag = str(positions.iloc[0, 1]).strip()
+    if first_flag in {"0", "1"}:
+        positions = positions.iloc[:, :len(column_names)].copy()
+        positions.columns = column_names
+    else:
+        positions.columns = positions.iloc[0]
+        positions = positions.iloc[1:].reset_index(drop=True)
+        positions = positions.rename(
+            columns={
+                "in_tissue": "on_off",
+                "array_row": "row",
+                "array_col": "col",
+                "pxl_row_in_fullres": "xcor",
+                "pxl_col_in_fullres": "ycor",
+            }
+        )
+        missing = [col for col in column_names if col not in positions.columns]
+        if missing:
+            raise ValueError(
+                f"Spatial positions file '{positions_file}' is missing "
+                f"columns {missing}."
+            )
+        positions = positions[column_names].copy()
+
+    positions["barcode"] = positions["barcode"].astype(str)
+    positions["on_off"] = positions["on_off"].astype(int)
+    positions["row"] = positions["row"].astype(int)
+    positions["col"] = positions["col"].astype(int)
+    positions["xcor"] = positions["xcor"].astype(float)
+    positions["ycor"] = positions["ycor"].astype(float)
+
+    return positions.set_index("barcode")
+
+
+def _load_run_adata(run: Run) -> anndata.AnnData:
+    gex_dir = Path(run.gex_dir.local_path)
+    gene_table = _read_gene_table(gex_dir)
+    barcodes = _read_barcodes(gex_dir)
+    matrix = _read_count_matrix(gex_dir, n_barcodes=len(barcodes), n_genes=len(gene_table))
+
+    positions_file = _resolve_spatial_file(run, POSITION_CANDIDATES)
+    positions = _read_positions(positions_file)
+    in_tissue = positions[positions["on_off"] == 1]
+
+    matched_barcodes = [barcode for barcode in in_tissue.index if barcode in barcodes]
+    if len(matched_barcodes) == 0:
+        raise ValueError(
+            f"No in-tissue barcodes from '{positions_file}' matched the count "
+            f"matrix for run '{run.run_id}'."
+        )
+
+    barcode_to_idx = {barcode: idx for idx, barcode in enumerate(barcodes)}
+    row_indices = [barcode_to_idx[barcode] for barcode in matched_barcodes]
+    prefixed_barcodes = [f"{run.run_id}#{barcode}" for barcode in matched_barcodes]
+
+    adata = anndata.AnnData(
+        X=matrix[row_indices, :],
+        obs=pd.DataFrame(
+            {
+                "barcode": matched_barcodes,
+                "on_off": in_tissue.loc[matched_barcodes, "on_off"].to_numpy(),
+                "row": in_tissue.loc[matched_barcodes, "row"].to_numpy(),
+                "col": in_tissue.loc[matched_barcodes, "col"].to_numpy(),
+                "xcor": in_tissue.loc[matched_barcodes, "xcor"].to_numpy(),
+                "ycor": in_tissue.loc[matched_barcodes, "ycor"].to_numpy(),
+                "sample": run.run_id,
+                "condition": sanitize_condition(run.condition),
+            },
+            index=prefixed_barcodes,
+        ),
+        var=pd.DataFrame(
+            {"gene_id": gene_table["gene_id"].to_numpy()},
+            index=pd.Index(gene_table["gene_name"], dtype="object"),
+        ),
+    )
+
+    return adata
 
 
 def add_clusters(
@@ -184,27 +387,4 @@ def make_anndatas(runs: List[Run], genome: str) -> List[anndata.AnnData]:
     list of AnnData objects. QCs, metadata and spatial data are stored in
     AnnData.obs.
     """
-
-    adatas = [sc.read_10x_mtx(run.gex_dir.local_path) for run in runs]
-
-    position_files = {}
-    missing_positions = []
-    for run in runs:
-        position_file = get_LatchFile(run.spatial_dir, "tissue_positions_list.csv")
-        if position_file is None:
-            missing_positions.append(f"{run.run_id} ({run.spatial_dir.remote_path})")
-            continue
-        position_files[run.run_id] = position_file
-
-    if missing_positions:
-        missing_str = ", ".join(missing_positions)
-        raise FileNotFoundError(
-            "Unable to resolve 'tissue_positions_list.csv' for one or more runs: "
-            f"{missing_str}. Ensure each spatial directory contains exactly one "
-            "'tissue_positions_list.csv' file."
-        )
-
-    adatas = [add_metadata(run, adata, position_files[run.run_id].local_path)
-              for run, adata in zip(runs, adatas)]
-
-    return adatas
+    return [_load_run_adata(run) for run in runs]
