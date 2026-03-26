@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from wf.utils import gene_keys, get_LatchFile, Run
+from wf.utils import gene_keys, get_LatchFile, Run, sanitize_condition
 
 
 logging.basicConfig(
@@ -95,7 +95,7 @@ def add_metadata(
 
     # Set run_id, condition
     adata.obs["sample"] = run.run_id
-    adata.obs["condition"] = run.condition
+    adata.obs["condition"] = sanitize_condition(run.condition)
 
     # Ensure obs_names unique
     adata.obs_names = [
@@ -187,10 +187,22 @@ def make_anndatas(runs: List[Run], genome: str) -> List[anndata.AnnData]:
 
     adatas = [sc.read_10x_mtx(run.gex_dir.local_path) for run in runs]
 
-    position_files = {
-        run.run_id: get_LatchFile(run.spatial_dir, "tissue_positions_list.csv")
-        for run in runs
-    }
+    position_files = {}
+    missing_positions = []
+    for run in runs:
+        position_file = get_LatchFile(run.spatial_dir, "tissue_positions_list.csv")
+        if position_file is None:
+            missing_positions.append(f"{run.run_id} ({run.spatial_dir.remote_path})")
+            continue
+        position_files[run.run_id] = position_file
+
+    if missing_positions:
+        missing_str = ", ".join(missing_positions)
+        raise FileNotFoundError(
+            "Unable to resolve 'tissue_positions_list.csv' for one or more runs: "
+            f"{missing_str}. Ensure each spatial directory contains exactly one "
+            "'tissue_positions_list.csv' file."
+        )
 
     adatas = [add_metadata(run, adata, position_files[run.run_id].local_path)
               for run, adata in zip(runs, adatas)]
