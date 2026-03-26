@@ -228,6 +228,7 @@ def add_clusters(
     n_neighbors: int,
     min_dist: float,
     spread: float,
+    merge_small_clusters: int = 0,
     random_state: int = 0,
     pca_plot: bool = True,
 ) -> anndata.AnnData:
@@ -281,7 +282,50 @@ def add_clusters(
         random_state=random_state
     )
 
+    if merge_small_clusters > 0:
+        cluster_codes = adata.obs["cluster"].astype("category").cat.codes.to_numpy()
+        merged_codes = _merge_small_clusters(
+            cluster_codes,
+            adata.obsm[rep],
+            merge_small_clusters,
+        )
+        adata.obs["cluster"] = pd.Categorical(merged_codes.astype(str))
+
     return adata
+
+
+def _merge_small_clusters(
+    labels: np.ndarray,
+    embedding: np.ndarray,
+    min_size: int
+) -> np.ndarray:
+    """Iteratively merge clusters smaller than `min_size`."""
+
+    labels = np.asarray(labels, dtype=int).copy()
+    embedding = np.asarray(embedding, dtype=float)
+
+    while True:
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        if len(unique_labels) <= 1 or counts.min() >= min_size:
+            break
+
+        smallest_idx = int(np.argmin(counts))
+        smallest_label = unique_labels[smallest_idx]
+        remaining_labels = unique_labels[unique_labels != smallest_label]
+
+        centroids = {
+            label: embedding[labels == label].mean(axis=0)
+            for label in unique_labels
+        }
+        distances = [
+            np.linalg.norm(centroids[smallest_label] - centroids[label])
+            for label in remaining_labels
+        ]
+        nearest_label = remaining_labels[int(np.argmin(distances))]
+        labels[labels == smallest_label] = nearest_label
+
+    remap = {old_label: new_label for new_label, old_label in enumerate(np.unique(labels))}
+    return np.array([remap[label] for label in labels], dtype=int)
 
 
 def add_metadata(

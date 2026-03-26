@@ -108,6 +108,13 @@ metadata = LatchMetadata(
                 Set to 100 to disable.",
             batch_table_column=True
         ),
+        "merge_small_clusters": LatchParameter(
+            display_name="merge small clusters",
+            description="Minimum cluster size after Leiden clustering. Any \
+                cluster smaller than this threshold is iteratively merged into \
+                its nearest cluster in embedding space. Set to 0 to disable.",
+            batch_table_column=True
+        ),
         "pt_size": LatchParameter(
             display_name="Override point size",
             description="Point size for spatial plot of clustering. \
@@ -141,6 +148,7 @@ def wtOpt_workflow(
     min_counts: int = 0,
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
+    merge_small_clusters: Optional[int] = 200,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -160,6 +168,7 @@ def wtOpt_workflow(
         min_counts=min_counts,
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
+        merge_small_clusters=merge_small_clusters,
         min_dist=min_dist,
         spread=spread,
         pt_size=pt_size,

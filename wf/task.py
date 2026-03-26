@@ -39,6 +39,7 @@ def wtOpt_task(
     min_counts: int = 0,
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
+    merge_small_clusters: Optional[int] = 200,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None
 ) -> LatchDir:
@@ -66,6 +67,9 @@ def wtOpt_task(
     qc_metrics = ["n_genes_by_counts", "total_counts", "pct_counts_mt"]
 
     genome = genome.value  # Convert to str
+    merge_small_clusters_threshold = (
+        0 if merge_small_clusters is None else merge_small_clusters
+    )
 
     out_dir = f"/root/{project_name}"
     os.makedirs(out_dir, exist_ok=True)
@@ -185,6 +189,7 @@ def wtOpt_task(
                 nn,
                 md,
                 sp,
+                merge_small_clusters=merge_small_clusters_threshold,
                 random_state=RANDOM_STATE
             )
 
