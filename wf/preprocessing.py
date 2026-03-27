@@ -1,4 +1,5 @@
 import json
+import importlib
 import anndata
 import scanpy as sc
 import logging
@@ -54,6 +55,10 @@ ALLOWED_HVG_FLAVORS = (
     "cell_ranger",
     "seurat_v3",
     "seurat_v3_paper",
+)
+ALLOWED_CLUSTERING_BACKENDS = (
+    "scanpy",
+    "stagate",
 )
 
 
@@ -358,6 +363,47 @@ def select_highly_variable_genes(
     adata.var["highly_variable"] = adata.var_names.isin(hvg_names)
 
 
+def _cluster_from_embedding(
+    adata: anndata.AnnData,
+    use_rep: str,
+    resolution: float,
+    n_neighbors: int,
+    min_dist: float,
+    spread: float,
+    merge_small_clusters: int = 0,
+    random_state: int = 0,
+) -> anndata.AnnData:
+    sc.pp.neighbors(
+        adata,
+        n_neighbors=n_neighbors,
+        use_rep=use_rep,
+        random_state=random_state,
+    )
+    sc.tl.umap(
+        adata,
+        min_dist=min_dist,
+        spread=spread,
+        random_state=random_state,
+    )
+    sc.tl.leiden(
+        adata,
+        resolution=resolution,
+        key_added="cluster",
+        random_state=random_state,
+    )
+
+    if merge_small_clusters > 0:
+        cluster_codes = adata.obs["cluster"].astype("category").cat.codes.to_numpy()
+        merged_codes = _merge_small_clusters(
+            cluster_codes,
+            adata.obsm[use_rep],
+            merge_small_clusters,
+        )
+        adata.obs["cluster"] = pd.Categorical(merged_codes.astype(str))
+
+    return adata
+
+
 def add_clusters(
     adata: anndata.AnnData,
     resolution: float,
@@ -398,39 +444,16 @@ def add_clusters(
     else:
         rep = "X_pca"
 
-    sc.pp.neighbors(
+    return _cluster_from_embedding(
         adata,
-        n_neighbors=n_neighbors,
         use_rep=rep,
-        n_pcs=n_comps,
-        random_state=random_state
-    )
-
-    # Add umap, nearest neightbors, clusters to .obs
-    sc.tl.umap(
-        adata,
+        resolution=resolution,
+        n_neighbors=n_neighbors,
         min_dist=min_dist,
         spread=spread,
+        merge_small_clusters=merge_small_clusters,
         random_state=random_state
     )
-    sc.tl.leiden(
-        adata,
-        resolution=resolution,
-        key_added="cluster",
-        random_state=random_state
-    )
-
-    if merge_small_clusters > 0:
-        cluster_codes = adata.obs["cluster"].astype("category").cat.codes.to_numpy()
-        merged_codes = _merge_small_clusters(
-            cluster_codes,
-            adata.obsm[rep],
-            merge_small_clusters,
-        )
-        adata.obs["cluster"] = pd.Categorical(merged_codes.astype(str))
-
-    return adata
-
 
 def _merge_small_clusters(
     labels: np.ndarray,
@@ -464,6 +487,106 @@ def _merge_small_clusters(
 
     remap = {old_label: new_label for new_label, old_label in enumerate(np.unique(labels))}
     return np.array([remap[label] for label in labels], dtype=int)
+
+
+def require_stagate_module():
+    try:
+        return importlib.import_module("STAGATE_pyG")
+    except ImportError as e:
+        raise ImportError(
+            "clustering_backend='stagate' requires STAGATE_pyG to be installed "
+            "in the workflow image."
+        ) from e
+
+
+def train_stagate_embedding(
+    adata: anndata.AnnData,
+    random_state: int = 0,
+) -> anndata.AnnData:
+    """Train STAGATE once on HVG log-normalized expression and store embedding."""
+
+    STAGATE_pyG = require_stagate_module()
+
+    if "highly_variable" not in adata.var:
+        raise ValueError(
+            "STAGATE backend requires `adata.var['highly_variable']` to be set."
+        )
+    if "log1p" not in adata.layers:
+        raise ValueError(
+            "STAGATE backend requires `adata.layers['log1p']` to be available."
+        )
+
+    adata_st = adata[:, adata.var["highly_variable"]].copy()
+    adata_st.X = adata_st.layers["log1p"].copy()
+
+    if "sample" in adata_st.obs.columns:
+        nets = []
+        for sample in adata_st.obs["sample"].astype(str).unique():
+            adata_sub = adata_st[adata_st.obs["sample"] == sample].copy()
+            STAGATE_pyG.Cal_Spatial_Net(
+                adata_sub,
+                rad_cutoff=None,
+                k_cutoff=6,
+                model="KNN",
+            )
+            nets.append(adata_sub.uns["Spatial_Net"])
+
+        adata_st.uns["Spatial_Net"] = pd.concat(nets, ignore_index=True)
+    else:
+        STAGATE_pyG.Cal_Spatial_Net(
+            adata_st,
+            rad_cutoff=None,
+            k_cutoff=6,
+            model="KNN",
+        )
+
+    STAGATE_pyG.Stats_Spatial_Net(adata_st)
+
+    train_kwargs = {
+        "random_seed": random_state,
+        "save_loss": False,
+    }
+    try:
+        import torch
+
+        train_kwargs["device"] = (
+            torch.device("cuda")
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
+    except Exception:
+        pass
+
+    adata_st = STAGATE_pyG.train_STAGATE(adata_st, **train_kwargs)
+    adata.obsm["X_stagate"] = adata_st.obsm["STAGATE"].copy()
+
+    return adata
+
+
+def add_stagate_clusters(
+    adata: anndata.AnnData,
+    resolution: float,
+    n_neighbors: int,
+    min_dist: float,
+    spread: float,
+    merge_small_clusters: int = 0,
+    random_state: int = 0,
+) -> anndata.AnnData:
+    if "X_stagate" not in adata.obsm:
+        raise ValueError(
+            "STAGATE clustering requires `adata.obsm['X_stagate']`."
+        )
+
+    return _cluster_from_embedding(
+        adata,
+        use_rep="X_stagate",
+        resolution=resolution,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        merge_small_clusters=merge_small_clusters,
+        random_state=random_state,
+    )
 
 
 def add_metadata(

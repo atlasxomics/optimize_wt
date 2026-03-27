@@ -78,6 +78,19 @@ metadata = LatchMetadata(
                 values result in more clusters.",
             batch_table_column=True
         ),
+        "clustering_backend": LatchParameter(
+            display_name="clustering backend: scanpy or stagate",
+            description="Choose the clustering backend. `scanpy` uses the \
+                current PCA/Harmony pipeline; `stagate` trains a STAGATE \
+                embedding and clusters on that representation.",
+            batch_table_column=True,
+            rules=[
+                LatchRule(
+                    regex="^(scanpy|stagate)$",
+                    message="clustering_backend must be one of: scanpy, stagate",
+                )
+            ]
+        ),
         "apply_harmony": LatchParameter(
             display_name="apply harmony integration",
             description="Apply Harmony batch correction across samples before \
@@ -173,6 +186,7 @@ def wtOpt_workflow(
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
     n_neighbors: List[int] = [15],
+    clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
@@ -199,6 +213,7 @@ def wtOpt_workflow(
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
         n_neighbors=n_neighbors,
+        clustering_backend=clustering_backend,
         apply_harmony=apply_harmony,
         min_genes=min_genes,
         min_cells=min_cells,

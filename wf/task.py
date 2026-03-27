@@ -34,6 +34,7 @@ def wtOpt_task(
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
     n_neighbors: List[int] = [15],
+    clustering_backend: str = "scanpy",
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
     apply_harmony: bool = True,
@@ -79,6 +80,13 @@ def wtOpt_task(
             f"Invalid hvg_flavor '{hvg_flavor}'. Expected one of "
             f"{pp.ALLOWED_HVG_FLAVORS}."
         )
+    if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
+        raise ValueError(
+            f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
+            f"{pp.ALLOWED_CLUSTERING_BACKENDS}."
+        )
+    if clustering_backend == "stagate":
+        pp.require_stagate_module()
 
     out_dir = f"/root/{project_name}"
     os.makedirs(out_dir, exist_ok=True)
@@ -175,39 +183,68 @@ def wtOpt_task(
 
     # Iterate through parameter sets ------------------------------------------
     adata_dict = {}
+    if clustering_backend == "stagate":
+        logging.info("Training STAGATE backend...")
+        adata = pp.train_stagate_embedding(adata, random_state=RANDOM_STATE)
+        sets = list(itertools.product(resolution, n_neighbors, min_dist, spread))
     count = 1
     for set in sets:
         try:
-            cr, nc, nn, md, sp = set
-            logging.info(
-                f"Set {count}: clustering resolution {cr}, number of "
-                f"components {nc}, neighborhood size {nn}, umap minimum "
-                f"{md}, umap spread {sp}."
-            )
-            cr_str, md_str, sp_str = [
-                str(param).replace(".", "-") for param in [cr, md, sp]
-            ]
-            set_str = f"set{count}_cr{cr_str}-nc{nc}-nn{nn}-md{md_str}-sp{sp_str}"
+            if clustering_backend == "scanpy":
+                cr, nc, nn, md, sp = set
+                logging.info(
+                    f"Set {count}: clustering resolution {cr}, number of "
+                    f"components {nc}, neighborhood size {nn}, umap minimum "
+                    f"{md}, umap spread {sp}."
+                )
+                cr_str, md_str, sp_str = [
+                    str(param).replace(".", "-") for param in [cr, md, sp]
+                ]
+                set_str = (
+                    f"set{count}_backend-scanpy_cr{cr_str}-nc{nc}-nn{nn}-"
+                    f"md{md_str}-sp{sp_str}"
+                )
+            else:
+                cr, nn, md, sp = set
+                logging.info(
+                    f"Set {count}: STAGATE resolution {cr}, neighborhood size "
+                    f"{nn}, umap minimum {md}, umap spread {sp}."
+                )
+                cr_str, md_str, sp_str = [
+                    str(param).replace(".", "-") for param in [cr, md, sp]
+                ]
+                set_str = (
+                    f"set{count}_backend-stagate_cr{cr_str}-nn{nn}-"
+                    f"md{md_str}-sp{sp_str}"
+                )
+
             set_dir = f"{out_dir}/{set_str}"
             os.makedirs(set_dir, exist_ok=True)
 
             adata_i = copy.deepcopy(adata)
 
-            logging.info(
-                f"Performing dimensionality reduction with resolution {cr}, \
-            number of components {nc}, neighborhood size {nn}..."
-            )
-            adata_i = pp.add_clusters(
-                adata_i,
-                cr,
-                nc,
-                nn,
-                md,
-                sp,
-                apply_harmony=apply_harmony,
-                merge_small_clusters=merge_small_clusters_threshold,
-                random_state=RANDOM_STATE
-            )
+            if clustering_backend == "scanpy":
+                adata_i = pp.add_clusters(
+                    adata_i,
+                    cr,
+                    nc,
+                    nn,
+                    md,
+                    sp,
+                    apply_harmony=apply_harmony,
+                    merge_small_clusters=merge_small_clusters_threshold,
+                    random_state=RANDOM_STATE
+                )
+            else:
+                adata_i = pp.add_stagate_clusters(
+                    adata_i,
+                    cr,
+                    nn,
+                    md,
+                    sp,
+                    merge_small_clusters=merge_small_clusters_threshold,
+                    random_state=RANDOM_STATE,
+                )
 
             adata_dict[set_str] = adata_i
             adata_i.write(f"{set_dir}/combined.h5ad")
