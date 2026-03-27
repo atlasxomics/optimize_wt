@@ -6,5 +6,6 @@ Dockerfile
 .git
 **/__pycache__
 .latch_report.tar.gz
+tests/
 
 !.latch/snakemake_jit_entrypoint.py
