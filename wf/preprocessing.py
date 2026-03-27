@@ -1,6 +1,8 @@
+import json
 import anndata
 import scanpy as sc
 import logging
+import matplotlib.image as mpimg
 import numpy as np
 import squidpy as sq
 
@@ -40,6 +42,13 @@ POSITION_CANDIDATES = [
     "tissue_positions_list.csv",
     "tissue_positions.csv",
 ]
+SCALE_FACTOR_CANDIDATES = [
+    "scalefactors_json.json",
+]
+SPATIAL_IMAGE_FILES = {
+    "hires": ["tissue_hires_image.png"],
+    "lowres": ["tissue_lowres_image.png"],
+}
 ALLOWED_HVG_FLAVORS = (
     "seurat",
     "cell_ranger",
@@ -77,6 +86,13 @@ def _resolve_spatial_file(run: Run, candidates: List[str]) -> Path:
         f"Unable to resolve any of {candidates} for run '{run.run_id}' in "
         f"'{run.spatial_dir.remote_path}'."
     )
+
+
+def _resolve_optional_spatial_file(run: Run, candidates: List[str]) -> Union[Path, None]:
+    try:
+        return _resolve_spatial_file(run, candidates)
+    except FileNotFoundError:
+        return None
 
 
 def _deduplicate_gene_names(gene_names: pd.Series) -> List[str]:
@@ -182,6 +198,46 @@ def _read_positions(positions_file: Union[Path, str]) -> pd.DataFrame:
     return positions.set_index("barcode")
 
 
+def _ensure_rgb(image: np.ndarray) -> np.ndarray:
+    """Convert grayscale/RGBA images into float32 RGB arrays."""
+
+    image = np.array(image, dtype=np.float32)
+    if image.ndim == 2:
+        image = np.stack([image, image, image], axis=-1)
+    elif image.ndim == 3 and image.shape[2] == 1:
+        image = np.repeat(image, 3, axis=2)
+    elif image.ndim == 3 and image.shape[2] == 4:
+        image = image[:, :, :3]
+
+    if image.size > 0 and image.max() > 1.0:
+        image = image / 255.0
+
+    return image
+
+
+def _load_spatial_assets(run: Run) -> dict:
+    """Load optional tissue images and scalefactors for image-backed plots."""
+
+    spatial_uns: dict = {}
+
+    scale_factor_path = _resolve_optional_spatial_file(run, SCALE_FACTOR_CANDIDATES)
+    if scale_factor_path is not None:
+        with open(scale_factor_path, "r", encoding="utf-8") as handle:
+            spatial_uns["scalefactors"] = json.load(handle)
+
+    images = {}
+    for image_key, candidates in SPATIAL_IMAGE_FILES.items():
+        image_path = _resolve_optional_spatial_file(run, candidates)
+        if image_path is None:
+            continue
+        images[image_key] = _ensure_rgb(mpimg.imread(str(image_path)))
+
+    if len(images) > 0:
+        spatial_uns["images"] = images
+
+    return spatial_uns
+
+
 def _load_run_adata(run: Run) -> anndata.AnnData:
     gex_dir = Path(run.gex_dir.local_path)
     gene_table = _read_gene_table(gex_dir)
@@ -224,6 +280,10 @@ def _load_run_adata(run: Run) -> anndata.AnnData:
         ),
     )
 
+    spatial_uns = _load_spatial_assets(run)
+    if len(spatial_uns) > 0:
+        adata.uns["spatial"] = {run.run_id: spatial_uns}
+
     return adata
 
 
@@ -262,6 +322,13 @@ def select_highly_variable_genes(
             "Invalid hvg flavor "
             f"'{flavor}'. Expected one of {ALLOWED_HVG_FLAVORS}."
         )
+    if flavor in {"seurat_v3", "seurat_v3_paper"}:
+        try:
+            import skmisc  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                f"hvg_flavor='{flavor}' requires scikit-misc to be installed."
+            ) from e
 
     allowed = ~(
         adata.var["mt"]

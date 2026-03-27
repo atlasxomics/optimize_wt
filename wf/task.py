@@ -104,6 +104,10 @@ def wtOpt_task(
     else:
         adata = adatas[0]
 
+    adata.uns["spatial"] = {}
+    for sample_adata in adatas:
+        adata.uns["spatial"].update(sample_adata.uns.get("spatial", {}))
+
     # Add addtional QCs
     pp.calculate_qc(adata, genome)
 
