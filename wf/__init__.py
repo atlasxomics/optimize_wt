@@ -139,6 +139,12 @@ metadata = LatchMetadata(
                 its nearest cluster in embedding space. Set to 0 to disable.",
             batch_table_column=True
         ),
+        "normalize_target_sum": LatchParameter(
+            display_name="normalize target sum",
+            description="Optional target sum for `scanpy.pp.normalize_total`. \
+                Leave unset to use Scanpy's default behavior.",
+            batch_table_column=True
+        ),
         "pt_size": LatchParameter(
             display_name="Override point size",
             description="Point size for spatial plot of clustering. \
@@ -176,6 +182,7 @@ def wtOpt_workflow(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
+    normalize_target_sum: Optional[float] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -199,6 +206,7 @@ def wtOpt_workflow(
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
         merge_small_clusters=merge_small_clusters,
+        normalize_target_sum=normalize_target_sum,
         min_dist=min_dist,
         spread=spread,
         pt_size=pt_size,

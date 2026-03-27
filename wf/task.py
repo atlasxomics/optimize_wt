@@ -43,6 +43,7 @@ def wtOpt_task(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
+    normalize_target_sum: Optional[float] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None
 ) -> LatchDir:
@@ -157,7 +158,7 @@ def wtOpt_task(
     # Normalize and scale
     adata.layers["counts"] = adata.X.copy()  # Save counts
 
-    sc.pp.normalize_total(adata)
+    sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
     adata.layers["normalized"] = adata.X.copy()
 
     sc.pp.log1p(adata)
