@@ -31,6 +31,8 @@ def wtOpt_task(
     project_name: str,
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
+    n_top_genes: int = 4000,
+    hvg_flavor: str = "seurat_v3",
     n_neighbors: List[int] = [15],
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
@@ -70,6 +72,11 @@ def wtOpt_task(
     merge_small_clusters_threshold = (
         0 if merge_small_clusters is None else merge_small_clusters
     )
+    if hvg_flavor not in pp.ALLOWED_HVG_FLAVORS:
+        raise ValueError(
+            f"Invalid hvg_flavor '{hvg_flavor}'. Expected one of "
+            f"{pp.ALLOWED_HVG_FLAVORS}."
+        )
 
     out_dir = f"/root/{project_name}"
     os.makedirs(out_dir, exist_ok=True)
@@ -151,8 +158,10 @@ def wtOpt_task(
     sc.pp.log1p(adata)
     adata.layers["log1p"] = adata.X.copy()
 
-    sc.pp.highly_variable_genes(
-        adata, n_top_genes=2000, flavor="seurat", batch_key="sample"
+    pp.select_highly_variable_genes(
+        adata,
+        n_top_genes=n_top_genes,
+        flavor=hvg_flavor,
     )
 
     # Perform scaling as in Seurat

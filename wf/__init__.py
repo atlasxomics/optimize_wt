@@ -48,6 +48,24 @@ metadata = LatchMetadata(
                 dimensionality reduction with `scanpy.pp.pca`.",
             batch_table_column=True
         ),
+        "n_top_genes": LatchParameter(
+            display_name="highly variable features",
+            description="Number of highly variable genes/features to retain \
+                for downstream dimensionality reduction.",
+            batch_table_column=True
+        ),
+        "hvg_flavor": LatchParameter(
+            display_name="hvg flavor: seurat, cell_ranger, seurat_v3, seurat_v3_paper",
+            description="Flavor argument passed to \
+                `scanpy.pp.highly_variable_genes`.",
+            batch_table_column=True,
+            rules=[
+                LatchRule(
+                    regex="^(seurat|cell_ranger|seurat_v3|seurat_v3_paper)$",
+                    message="hvg_flavor must be one of: seurat, cell_ranger, seurat_v3, seurat_v3_paper",
+                )
+            ]
+        ),
         "n_neighbors": LatchParameter(
             display_name="neighborhood sizes",
             description="The size of local neighborhood (number of cells) \
@@ -140,6 +158,8 @@ def wtOpt_workflow(
     project_name: str,
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
+    n_top_genes: int = 4000,
+    hvg_flavor: str = "seurat_v3",
     n_neighbors: List[int] = [15],
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
@@ -162,6 +182,8 @@ def wtOpt_workflow(
         project_name=project_name,
         resolution=resolution,
         n_comps=n_comps,
+        n_top_genes=n_top_genes,
+        hvg_flavor=hvg_flavor,
         n_neighbors=n_neighbors,
         min_genes=min_genes,
         min_cells=min_cells,

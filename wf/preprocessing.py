@@ -11,7 +11,7 @@ import pandas as pd
 from scipy import io as sio
 from scipy import sparse as sp
 
-from wf.utils import gene_keys, get_LatchFile, Run, sanitize_condition
+from wf.utils import get_LatchFile, Run, sanitize_condition
 
 
 logging.basicConfig(
@@ -40,6 +40,12 @@ POSITION_CANDIDATES = [
     "tissue_positions_list.csv",
     "tissue_positions.csv",
 ]
+ALLOWED_HVG_FLAVORS = (
+    "seurat",
+    "cell_ranger",
+    "seurat_v3",
+    "seurat_v3_paper",
+)
 
 
 def _resolve_local_file(directory: Union[Path, str], candidates: List[str]) -> Path:
@@ -219,6 +225,70 @@ def _load_run_adata(run: Run) -> anndata.AnnData:
     )
 
     return adata
+
+
+def annotate_biotypes(adata: anndata.AnnData, genome: str) -> None:
+    """Annotate common RNA biotypes from gene symbols."""
+
+    gene_names = pd.Index(adata.var_names.astype(str))
+    gene_names_upper = gene_names.str.upper()
+
+    # Upper-casing gene symbols makes these prefix rules work for human, mouse,
+    # and rat naming conventions (for example MT-/Mt-, RPS/Rps).
+    adata.var["mt"] = gene_names_upper.str.startswith(("MT-",))
+    adata.var["ribo"] = gene_names_upper.str.startswith(
+        ("RPS", "RPL", "MRPS", "MRPL")
+    )
+    adata.var["lncrna"] = (
+        gene_names_upper.str.contains("-AS", regex=False)
+        | gene_names_upper.str.endswith("AS1")
+        | gene_names_upper.str.startswith(("LINC", "NEAT", "MALAT"))
+    )
+    adata.var["mirna"] = gene_names_upper.str.startswith(("MIR", "MIRLET"))
+    adata.var["sncrna"] = gene_names_upper.str.startswith(
+        ("SNORD", "SNORA", "SNRP")
+    )
+
+
+def select_highly_variable_genes(
+    adata: anndata.AnnData,
+    n_top_genes: int = 4000,
+    flavor: str = "seurat_v3",
+) -> None:
+    """Select HVGs from protein-coding plus lncRNA genes only."""
+
+    if flavor not in ALLOWED_HVG_FLAVORS:
+        raise ValueError(
+            "Invalid hvg flavor "
+            f"'{flavor}'. Expected one of {ALLOWED_HVG_FLAVORS}."
+        )
+
+    allowed = ~(
+        adata.var["mt"]
+        | adata.var["ribo"]
+        | adata.var["mirna"]
+        | adata.var["sncrna"]
+    )
+    n_allowed = int(allowed.sum())
+    if n_allowed == 0:
+        raise ValueError(
+            "No genes remain after excluding mt, ribo, mirna, and sncrna "
+            "features from HVG selection."
+        )
+
+    adata_hvg = adata[:, allowed].copy()
+    adata_hvg.X = adata.layers["counts"][:, allowed].copy()
+
+    batch_key = "sample" if "sample" in adata_hvg.obs.columns else None
+    sc.pp.highly_variable_genes(
+        adata_hvg,
+        n_top_genes=min(n_top_genes, n_allowed),
+        flavor=flavor,
+        batch_key=batch_key,
+    )
+
+    hvg_names = adata_hvg.var_names[adata_hvg.var["highly_variable"]]
+    adata.var["highly_variable"] = adata.var_names.isin(hvg_names)
 
 
 def add_clusters(
@@ -452,14 +522,14 @@ def spatial_coherence_table(adata_dict: dict[str, anndata.AnnData]) -> pd.DataFr
 
 
 def calculate_qc(adata: anndata.AnnData, genome: str) -> None:
-
-    mito_key = gene_keys["mitochondiral"][genome]
-    ribo_key = gene_keys["ribosomal"][genome]
-    adata.var["mt"] = adata.var_names.str.startswith(mito_key)
-    adata.var["ribo"] = adata.var_names.str.startswith(ribo_key)
+    annotate_biotypes(adata, genome)
 
     sc.pp.calculate_qc_metrics(
-        adata, qc_vars=["mt", "ribo"], inplace=True, log1p=True
+        adata,
+        qc_vars=["mt", "ribo", "lncrna"],
+        inplace=True,
+        percent_top=None,
+        log1p=False,
     )
 
     return None

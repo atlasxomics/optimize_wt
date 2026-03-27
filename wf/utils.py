@@ -20,10 +20,16 @@ logging.basicConfig(
 
 gene_keys = {
     "mitochondiral": {
-        "hg38": "MT-", "mm10": ("Mt-", "mt-"), "mm39": ("Mt-", "mt-")
+        "hg38": "MT-",
+        "mm10": ("Mt-", "mt-"),
+        "mm39": ("Mt-", "mt-"),
+        "rnor6": ("Mt-", "mt-"),
     },
     "ribosomal":  {
-        "hg38": ("RPS", "RPL"), "mm10": ("Rps", "Rpl"), "mm39": ("Rps", "Rpl")
+        "hg38": ("RPS", "RPL"),
+        "mm10": ("Rps", "Rpl"),
+        "mm39": ("Rps", "Rpl"),
+        "rnor6": ("Rps", "Rpl"),
     }
 }
 
@@ -199,4 +205,3 @@ def get_LatchFile(
         return None
 
     return None
-
