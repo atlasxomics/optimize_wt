@@ -365,6 +365,7 @@ def add_clusters(
     n_neighbors: int,
     min_dist: float,
     spread: float,
+    apply_harmony: bool = True,
     merge_small_clusters: int = 0,
     random_state: int = 0,
     pca_plot: bool = True,
@@ -390,7 +391,7 @@ def add_clusters(
             f"Exception {e}: Please add metadata to combined AnnData."
         )
 
-    if n_runs > 1:
+    if n_runs > 1 and apply_harmony:
         logging.info("Performing batch correction with Harmony...")
         sc.external.pp.harmony_integrate(adata, batch="sample")
         rep = "X_pca_harmony"

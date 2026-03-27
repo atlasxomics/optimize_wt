@@ -32,10 +32,11 @@ def wtOpt_task(
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
     n_top_genes: int = 4000,
-    hvg_flavor: str = "seurat_v3",
+    hvg_flavor: str = "seurat",
     n_neighbors: List[int] = [15],
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
+    apply_harmony: bool = True,
     min_genes: int = 0,
     min_cells: int = 0,
     min_counts: int = 0,
@@ -202,6 +203,7 @@ def wtOpt_task(
                 nn,
                 md,
                 sp,
+                apply_harmony=apply_harmony,
                 merge_small_clusters=merge_small_clusters_threshold,
                 random_state=RANDOM_STATE
             )

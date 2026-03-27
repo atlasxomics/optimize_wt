@@ -78,6 +78,12 @@ metadata = LatchMetadata(
                 values result in more clusters.",
             batch_table_column=True
         ),
+        "apply_harmony": LatchParameter(
+            display_name="apply harmony integration",
+            description="Apply Harmony batch correction across samples before \
+                neighbor graph construction. Ignored for single-sample runs.",
+            batch_table_column=True
+        ),
         "min_dist": LatchParameter(
             display_name="umap minimum distance",
             description="'The effective minimum distance between embedded \
@@ -159,8 +165,9 @@ def wtOpt_workflow(
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
     n_top_genes: int = 4000,
-    hvg_flavor: str = "seurat_v3",
+    hvg_flavor: str = "seurat",
     n_neighbors: List[int] = [15],
+    apply_harmony: bool = True,
     min_dist: List[float] = [0.5],
     spread: List[float] = [1.0],
     min_genes: int = 1,
@@ -185,6 +192,7 @@ def wtOpt_workflow(
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
         n_neighbors=n_neighbors,
+        apply_harmony=apply_harmony,
         min_genes=min_genes,
         min_cells=min_cells,
         min_counts=min_counts,
