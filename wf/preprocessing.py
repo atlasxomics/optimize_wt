@@ -349,7 +349,21 @@ def select_highly_variable_genes(
         )
 
     adata_hvg = adata[:, allowed].copy()
-    adata_hvg.X = adata.layers["counts"][:, allowed].copy()
+
+    if flavor in {"seurat_v3", "seurat_v3_paper"}:
+        if "counts" not in adata.layers:
+            raise ValueError(
+                f"hvg_flavor='{flavor}' requires `adata.layers['counts']` to be "
+                "available."
+            )
+        adata_hvg.X = adata.layers["counts"][:, allowed].copy()
+    else:
+        if "log1p" not in adata.layers:
+            raise ValueError(
+                f"hvg_flavor='{flavor}' requires `adata.layers['log1p']` to be "
+                "available."
+            )
+        adata_hvg.X = adata.layers["log1p"][:, allowed].copy()
 
     batch_key = "sample" if "sample" in adata_hvg.obs.columns else None
     sc.pp.highly_variable_genes(
