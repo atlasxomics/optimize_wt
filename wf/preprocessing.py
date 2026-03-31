@@ -610,7 +610,10 @@ def save_stagate_embedding_checkpoint(
         var=pd.DataFrame(index=pd.Index([], dtype=str)),
     )
     checkpoint.obsm["X_stagate"] = np.asarray(adata.obsm["X_stagate"]).copy()
-    checkpoint.uns["stagate_checkpoint_metadata"] = metadata
+    checkpoint.uns["stagate_checkpoint_metadata_json"] = json.dumps(
+        metadata,
+        sort_keys=True,
+    )
 
     output_path = Path(output_path)
     checkpoint.write(output_path)
@@ -652,12 +655,13 @@ def load_stagate_embedding_checkpoint(
                 "current filtered AnnData."
             )
 
-    stored_metadata = checkpoint.uns.get("stagate_checkpoint_metadata")
-    if stored_metadata is None:
+    stored_metadata_json = checkpoint.uns.get("stagate_checkpoint_metadata_json")
+    if stored_metadata_json is None:
         raise ValueError(
             f"Checkpoint '{checkpoint_path}' is missing "
-            "`uns['stagate_checkpoint_metadata']`."
+            "`uns['stagate_checkpoint_metadata_json']`."
         )
+    stored_metadata = json.loads(stored_metadata_json)
     if stored_metadata != expected_metadata:
         raise ValueError(
             "STAGATE checkpoint preprocessing metadata does not match the "
