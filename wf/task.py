@@ -277,8 +277,8 @@ def build_wt_opt_jobs_task(
     resolution: List[float],
     n_comps: List[int],
     n_neighbors: List[int],
-    min_dist: List[float],
-    spread: List[float],
+    min_dist: float,
+    spread: float,
     apply_harmony: bool = True,
     merge_small_clusters: Optional[int] = 200,
     min_genes: int = 0,
@@ -322,9 +322,9 @@ def build_wt_opt_jobs_task(
 
     jobs: List[utils.WTOptSetInput] = []
     if clustering_backend == "scanpy":
-        sets = list(itertools.product(resolution, n_comps, n_neighbors, min_dist, spread))
+        sets = list(itertools.product(resolution, n_comps, n_neighbors))
         logging.info("Creating %d scanpy optimization parameter set jobs.", len(sets))
-        for i, (cr, nc, nn, md, sp) in enumerate(sets, start=1):
+        for i, (cr, nc, nn) in enumerate(sets, start=1):
             jobs.append(
                 utils.WTOptSetInput(
                     set_index=i,
@@ -333,8 +333,8 @@ def build_wt_opt_jobs_task(
                     resolution=cr,
                     n_comps=nc,
                     n_neighbors=nn,
-                    min_dist=md,
-                    spread=sp,
+                    min_dist=min_dist,
+                    spread=spread,
                     preprocess_dir=preprocess_dir,
                     apply_harmony=apply_harmony,
                     merge_small_clusters=merge_small_clusters_threshold,
@@ -343,9 +343,9 @@ def build_wt_opt_jobs_task(
             )
         return jobs
 
-    sets = list(itertools.product(resolution, n_neighbors, min_dist, spread))
+    sets = list(itertools.product(resolution, n_neighbors))
     logging.info("Creating %d STAGATE optimization parameter set jobs.", len(sets))
-    for i, (cr, nn, md, sp) in enumerate(sets, start=1):
+    for i, (cr, nn) in enumerate(sets, start=1):
         jobs.append(
             utils.WTOptSetInput(
                 set_index=i,
@@ -353,8 +353,8 @@ def build_wt_opt_jobs_task(
                 clustering_backend=clustering_backend,
                 resolution=cr,
                 n_neighbors=nn,
-                min_dist=md,
-                spread=sp,
+                min_dist=min_dist,
+                spread=spread,
                 preprocess_dir=preprocess_dir,
                 apply_harmony=apply_harmony,
                 merge_small_clusters=merge_small_clusters_threshold,
@@ -491,8 +491,8 @@ def wtOpt_task(
     stagate_k_cutoff: int = 6,
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
-    min_dist: List[float] = [0.5],
-    spread: List[float] = [1.0],
+    min_dist: float = 0.5,
+    spread: float = 1.0,
     apply_harmony: bool = True,
     min_genes: int = 0,
     min_cells: int = 0,

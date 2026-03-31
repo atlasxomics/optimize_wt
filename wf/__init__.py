@@ -4,11 +4,68 @@ from latch import map_task
 from latch.resources.workflow import workflow
 from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
-                                  LatchRule)
+                                  LatchRule, Params, Section, Spoiler, Text)
 
 from wf.task import (build_wt_opt_jobs_task, opt_set_task, preprocess_wt_task,
                      train_stagate_task, wtOpt_task)
 from wf.utils import Genome, Run
+
+flow = [
+    Params("runs"),
+    Section(
+        "Global Parameters",
+        Params("project_name"),
+        Params("genome"),
+        Params("clustering_backend"),
+        Section(
+            "STAGATE Parameters",
+            Text(
+                "STAGATE-specific options only affect runs where the clustering "
+                "backend is set to `stagate`."
+            ),
+            Params("stagate_embedding_checkpoint"),
+            Params("stagate_k_cutoff"),
+        )
+    ),
+    Section(
+        "Preprocessing Parameters",
+        Section(
+            "Filtering",
+            Params("min_genes"),
+            Params("min_cells"),
+            Params("min_counts"),
+            Params("max_counts"),
+            Params("max_pct_mt"),
+        ),
+        Section(
+            "Select Variable Features",
+            Params("normalize_target_sum"),
+            Params("n_top_genes"),
+            Params("hvg_flavor"),
+        ),
+    ),
+    Section(
+        "Iterative Parameters",
+        Params("resolution"),
+        Params("n_neighbors"),
+        Params("n_comps"),
+    ),
+    Spoiler(
+        "Advanced Options",
+        Params("merge_small_clusters"),
+        Params("apply_harmony"),
+        Section(
+            "UMAP Display",
+            Params("min_dist"),
+            Params("spread"),
+        ),
+        Section(
+            "Figure Display",
+            Params("pt_size"),
+            Params("qc_pt_size"),
+        ),
+    ),
+]
 
 metadata = LatchMetadata(
     display_name="optimize_wt",
@@ -46,7 +103,7 @@ metadata = LatchMetadata(
             batch_table_column=True,
         ),
         "n_comps": LatchParameter(
-            display_name="number of components",
+            display_name="number of components (scanpy only)",
             description="Number of components/dimensions to keep during \
                 dimensionality reduction with `scanpy.pp.pca`.",
             batch_table_column=True
@@ -102,7 +159,7 @@ metadata = LatchMetadata(
             ]
         ),
         "apply_harmony": LatchParameter(
-            display_name="apply harmony integration",
+            display_name="apply harmony integration (scanpy only)",
             description="Apply Harmony batch correction across samples before \
                 neighbor graph construction. Ignored for single-sample runs.",
             batch_table_column=True
@@ -117,16 +174,14 @@ metadata = LatchMetadata(
                 should be set relative to the spread value, which determines \
                 the scale at which embedded points will be spread out.' - \
                 Scanpy docs",
-            batch_table_column=True,
-            hidden=True
+            batch_table_column=True
         ),
         "spread": LatchParameter(
             display_name="umap spread",
             description="'The effective scale of embedded points. In \
                 combination with min_dist this determines how \
                 clustered/clumped the embedded points are.' - Scanpy docs",
-            batch_table_column=True,
-            hidden=True
+            batch_table_column=True
         ),
         "min_genes": LatchParameter(
             display_name="minimum genes",
@@ -189,7 +244,8 @@ metadata = LatchMetadata(
             batch_table_column=True,
             hidden=True
         ),
-    }
+    },
+    flow=flow
 )
 
 
@@ -206,8 +262,8 @@ def wtOpt_workflow(
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
-    min_dist: List[float] = [0.5],
-    spread: List[float] = [1.0],
+    min_dist: float = 0.5,
+    spread: float = 1.0,
     min_genes: int = 1,
     min_cells: int = 1,
     min_counts: int = 0,
