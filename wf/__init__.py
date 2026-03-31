@@ -5,7 +5,7 @@ from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule)
 
-from wf.task import wtOpt_task
+from wf.task import preprocess_wt_task, train_stagate_task, wtOpt_task
 from wf.utils import Genome, Run
 
 metadata = LatchMetadata(
@@ -212,8 +212,39 @@ def wtOpt_workflow(
     """Determine optimal input parameters for spatial whole transcriptome
     analysis.
     """
+    preprocess_dir = preprocess_wt_task(
+        runs=runs,
+        genome=genome,
+        project_name=project_name,
+        n_top_genes=n_top_genes,
+        hvg_flavor=hvg_flavor,
+        min_genes=min_genes,
+        min_cells=min_cells,
+        min_counts=min_counts,
+        max_counts=max_counts,
+        max_pct_mt=max_pct_mt,
+        normalize_target_sum=normalize_target_sum,
+    )
+
+    stagate_embedding_checkpoint = train_stagate_task(
+        preprocessed_dir=preprocess_dir,
+        project_name=project_name,
+        clustering_backend=clustering_backend,
+        runs=runs,
+        genome=genome,
+        min_genes=min_genes,
+        min_cells=min_cells,
+        min_counts=min_counts,
+        max_counts=max_counts,
+        max_pct_mt=max_pct_mt,
+        normalize_target_sum=normalize_target_sum,
+        n_top_genes=n_top_genes,
+        hvg_flavor=hvg_flavor,
+        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
+    )
 
     results = wtOpt_task(
+        preprocess_dir=preprocess_dir,
         runs=runs,
         genome=genome,
         project_name=project_name,
@@ -242,7 +273,7 @@ def wtOpt_workflow(
 
 
 if __name__ == "__main__":
-    wtOpt_task(
+    wtOpt_workflow(
         runs=[Run(
             run_id="test",
             gex_dir="latch://13502.account/star_outputs/D02042_NG06104/STAR_outputsGeneFull/raw",

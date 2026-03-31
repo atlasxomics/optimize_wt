@@ -62,7 +62,9 @@ ALLOWED_CLUSTERING_BACKENDS = (
 )
 
 
-def _resolve_local_file(directory: Union[Path, str], candidates: List[str]) -> Path:
+def _resolve_local_file(
+    directory: Union[Path, str], candidates: List[str]
+) -> Path:
     directory = Path(directory)
     for candidate in candidates:
         candidate_path = directory / candidate
@@ -93,7 +95,9 @@ def _resolve_spatial_file(run: Run, candidates: List[str]) -> Path:
     )
 
 
-def _resolve_optional_spatial_file(run: Run, candidates: List[str]) -> Union[Path, None]:
+def _resolve_optional_spatial_file(
+    run: Run, candidates: List[str]
+) -> Union[Path, None]:
     try:
         return _resolve_spatial_file(run, candidates)
     except FileNotFoundError:
@@ -247,13 +251,17 @@ def _load_run_adata(run: Run) -> anndata.AnnData:
     gex_dir = Path(run.gex_dir.local_path)
     gene_table = _read_gene_table(gex_dir)
     barcodes = _read_barcodes(gex_dir)
-    matrix = _read_count_matrix(gex_dir, n_barcodes=len(barcodes), n_genes=len(gene_table))
+    matrix = _read_count_matrix(
+        gex_dir, n_barcodes=len(barcodes), n_genes=len(gene_table)
+    )
 
     positions_file = _resolve_spatial_file(run, POSITION_CANDIDATES)
     positions = _read_positions(positions_file)
     in_tissue = positions[positions["on_off"] == 1]
 
-    matched_barcodes = [barcode for barcode in in_tissue.index if barcode in barcodes]
+    matched_barcodes = [
+        barcode for barcode in in_tissue.index if barcode in barcodes
+    ]
     if len(matched_barcodes) == 0:
         raise ValueError(
             f"No in-tissue barcodes from '{positions_file}' matched the count "
@@ -262,7 +270,9 @@ def _load_run_adata(run: Run) -> anndata.AnnData:
 
     barcode_to_idx = {barcode: idx for idx, barcode in enumerate(barcodes)}
     row_indices = [barcode_to_idx[barcode] for barcode in matched_barcodes]
-    prefixed_barcodes = [f"{run.run_id}#{barcode}" for barcode in matched_barcodes]
+    prefixed_barcodes = [
+        f"{run.run_id}#{barcode}" for barcode in matched_barcodes
+    ]
 
     adata = anndata.AnnData(
         X=matrix[row_indices, :],
@@ -468,6 +478,7 @@ def add_clusters(
         merge_small_clusters=merge_small_clusters,
         random_state=random_state
     )
+
 
 def _merge_small_clusters(
     labels: np.ndarray,
