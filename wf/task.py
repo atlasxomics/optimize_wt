@@ -1,5 +1,5 @@
-import copy
 import itertools
+import json
 import logging
 import os
 import shutil
@@ -42,6 +42,7 @@ def _build_stagate_checkpoint_metadata(
     normalize_target_sum: Optional[float],
     n_top_genes: int,
     hvg_flavor: str,
+    stagate_k_cutoff: int,
 ) -> Dict[str, object]:
     return {
         "runs": [
@@ -60,6 +61,7 @@ def _build_stagate_checkpoint_metadata(
         "normalize_target_sum": normalize_target_sum,
         "n_top_genes": n_top_genes,
         "hvg_flavor": hvg_flavor,
+        "stagate_k_cutoff": stagate_k_cutoff,
     }
 
 
@@ -80,7 +82,7 @@ def _copytree_contents(src: Path, dst: Path) -> None:
             shutil.copy2(item, target)
 
 
-@custom_task(cpu=8, memory=164, storage_gib=1000)
+@custom_task(cpu=4, memory=64, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
@@ -210,6 +212,7 @@ def train_stagate_task(
     normalize_target_sum: Optional[float] = None,
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
+    stagate_k_cutoff: int = 6,
     stagate_embedding_checkpoint: Optional[LatchFile] = None,
 ) -> Optional[LatchFile]:
     if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
@@ -236,7 +239,11 @@ def train_stagate_task(
 
     preprocess_path = Path(preprocessed_dir.local_path)
     adata = ad.read_h5ad(preprocess_path / "preprocessed.h5ad")
-    adata = pp.train_stagate_embedding(adata, random_state=RANDOM_STATE)
+    adata = pp.train_stagate_embedding(
+        adata,
+        k_cutoff=stagate_k_cutoff,
+        random_state=RANDOM_STATE,
+    )
 
     metadata = _build_stagate_checkpoint_metadata(
         runs=runs,
@@ -249,6 +256,7 @@ def train_stagate_task(
         normalize_target_sum=normalize_target_sum,
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
+        stagate_k_cutoff=stagate_k_cutoff,
     )
 
     out_path = Path(f"/root/{project_name}_stagate_embedding_checkpoint.h5ad")
@@ -259,16 +267,228 @@ def train_stagate_task(
     )
 
 
-@custom_task(cpu=8, memory=164, storage_gib=1000)
+@custom_task(cpu=2, memory=4, storage_gib=50)
+def build_wt_opt_jobs_task(
+    runs: List[utils.Run],
+    genome: utils.Genome,
+    project_name: str,
+    preprocess_dir: LatchDir,
+    clustering_backend: str,
+    resolution: List[float],
+    n_comps: List[int],
+    n_neighbors: List[int],
+    min_dist: List[float],
+    spread: List[float],
+    apply_harmony: bool = True,
+    merge_small_clusters: Optional[int] = 200,
+    min_genes: int = 0,
+    min_cells: int = 0,
+    min_counts: int = 0,
+    max_counts: int = 0,
+    max_pct_mt: float = 100.0,
+    normalize_target_sum: Optional[float] = None,
+    n_top_genes: int = 4000,
+    hvg_flavor: str = "seurat",
+    stagate_k_cutoff: int = 6,
+    stagate_embedding_checkpoint: Optional[LatchFile] = None,
+) -> List[utils.WTOptSetInput]:
+    if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
+        raise ValueError(
+            f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
+            f"{pp.ALLOWED_CLUSTERING_BACKENDS}."
+        )
+
+    merge_small_clusters_threshold = (
+        0 if merge_small_clusters is None else merge_small_clusters
+    )
+    stagate_expected_metadata_json = None
+    if clustering_backend == "stagate":
+        stagate_expected_metadata_json = json.dumps(
+            _build_stagate_checkpoint_metadata(
+                runs=runs,
+                genome=genome.value,
+                min_genes=min_genes,
+                min_cells=min_cells,
+                min_counts=min_counts,
+                max_counts=max_counts,
+                max_pct_mt=max_pct_mt,
+                normalize_target_sum=normalize_target_sum,
+                n_top_genes=n_top_genes,
+                hvg_flavor=hvg_flavor,
+                stagate_k_cutoff=stagate_k_cutoff,
+            ),
+            sort_keys=True,
+        )
+
+    jobs: List[utils.WTOptSetInput] = []
+    if clustering_backend == "scanpy":
+        sets = list(itertools.product(resolution, n_comps, n_neighbors, min_dist, spread))
+        logging.info("Creating %d scanpy optimization parameter set jobs.", len(sets))
+        for i, (cr, nc, nn, md, sp) in enumerate(sets, start=1):
+            jobs.append(
+                utils.WTOptSetInput(
+                    set_index=i,
+                    project_name=project_name,
+                    clustering_backend=clustering_backend,
+                    resolution=cr,
+                    n_comps=nc,
+                    n_neighbors=nn,
+                    min_dist=md,
+                    spread=sp,
+                    preprocess_dir=preprocess_dir,
+                    apply_harmony=apply_harmony,
+                    merge_small_clusters=merge_small_clusters_threshold,
+                    stagate_expected_metadata_json=stagate_expected_metadata_json,
+                )
+            )
+        return jobs
+
+    sets = list(itertools.product(resolution, n_neighbors, min_dist, spread))
+    logging.info("Creating %d STAGATE optimization parameter set jobs.", len(sets))
+    for i, (cr, nn, md, sp) in enumerate(sets, start=1):
+        jobs.append(
+            utils.WTOptSetInput(
+                set_index=i,
+                project_name=project_name,
+                clustering_backend=clustering_backend,
+                resolution=cr,
+                n_neighbors=nn,
+                min_dist=md,
+                spread=sp,
+                preprocess_dir=preprocess_dir,
+                apply_harmony=apply_harmony,
+                merge_small_clusters=merge_small_clusters_threshold,
+                stagate_embedding_checkpoint=stagate_embedding_checkpoint,
+                stagate_expected_metadata_json=stagate_expected_metadata_json,
+            )
+        )
+
+    return jobs
+
+
+@custom_task(cpu=4, memory=64, storage_gib=1000)
+def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
+    set_str = utils.format_wt_opt_set_str(
+        set_index=job.set_index,
+        clustering_backend=job.clustering_backend,
+        resolution=job.resolution,
+        n_neighbors=job.n_neighbors,
+        min_dist=job.min_dist,
+        spread=job.spread,
+        n_comps=job.n_comps,
+    )
+    out_dir = Path(f"/root/{job.project_name}/{set_str}")
+    os.makedirs(out_dir, exist_ok=True)
+
+    try:
+        preprocess_path = Path(job.preprocess_dir.local_path)
+        adata = ad.read_h5ad(preprocess_path / "preprocessed.h5ad")
+
+        if job.clustering_backend == "scanpy":
+            logging.info(
+                "Set %d: clustering resolution %s, number of components %s, "
+                "neighborhood size %s, umap minimum %s, umap spread %s.",
+                job.set_index,
+                job.resolution,
+                job.n_comps,
+                job.n_neighbors,
+                job.min_dist,
+                job.spread,
+            )
+            adata = pp.add_clusters(
+                adata,
+                job.resolution,
+                job.n_comps,
+                job.n_neighbors,
+                job.min_dist,
+                job.spread,
+                apply_harmony=job.apply_harmony,
+                merge_small_clusters=job.merge_small_clusters,
+                random_state=RANDOM_STATE,
+            )
+        else:
+            logging.info(
+                "Set %d: STAGATE resolution %s, neighborhood size %s, "
+                "umap minimum %s, umap spread %s.",
+                job.set_index,
+                job.resolution,
+                job.n_neighbors,
+                job.min_dist,
+                job.spread,
+            )
+            if job.stagate_embedding_checkpoint is None:
+                raise ValueError(
+                    "STAGATE optimization set requires an embedding checkpoint."
+                )
+            expected_metadata = (
+                json.loads(job.stagate_expected_metadata_json)
+                if job.stagate_expected_metadata_json is not None
+                else None
+            )
+            if expected_metadata is None:
+                raise ValueError(
+                    "STAGATE optimization set is missing checkpoint validation "
+                    "metadata."
+                )
+            adata = pp.load_stagate_embedding_checkpoint(
+                adata,
+                job.stagate_embedding_checkpoint.local_path,
+                expected_metadata=expected_metadata,
+            )
+            adata = pp.add_stagate_clusters(
+                adata,
+                job.resolution,
+                job.n_neighbors,
+                job.min_dist,
+                job.spread,
+                merge_small_clusters=job.merge_small_clusters,
+                random_state=RANDOM_STATE,
+            )
+
+        adata.write(out_dir / "combined.h5ad")
+        return utils.WTOptSetResult(
+            set_index=job.set_index,
+            set_str=set_str,
+            clustering_backend=job.clustering_backend,
+            resolution=job.resolution,
+            n_comps=job.n_comps,
+            n_neighbors=job.n_neighbors,
+            min_dist=job.min_dist,
+            spread=job.spread,
+            succeeded=True,
+            output_dir=LatchDir(
+                str(out_dir),
+                f"latch:///wt_opts/{job.project_name}/_intermediates/_mapped_sets/{set_str}",
+            ),
+        )
+    except Exception as e:
+        logging.warning("Exception for %s: %s", set_str, e)
+        return utils.WTOptSetResult(
+            set_index=job.set_index,
+            set_str=set_str,
+            clustering_backend=job.clustering_backend,
+            resolution=job.resolution,
+            n_comps=job.n_comps,
+            n_neighbors=job.n_neighbors,
+            min_dist=job.min_dist,
+            spread=job.spread,
+            succeeded=False,
+            error_message=str(e),
+        )
+
+
+@custom_task(cpu=4, memory=256, storage_gib=1000)
 def wtOpt_task(
     preprocess_dir: LatchDir,
     runs: List[utils.Run],
     genome: utils.Genome,
     project_name: str,
+    results: List[utils.WTOptSetResult],
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
+    stagate_k_cutoff: int = 6,
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     min_dist: List[float] = [0.5],
@@ -300,27 +520,6 @@ def wtOpt_task(
             f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
             f"{pp.ALLOWED_CLUSTERING_BACKENDS}."
         )
-    if clustering_backend == "stagate" and stagate_embedding_checkpoint is None:
-        raise ValueError(
-            "STAGATE clustering requires a trained embedding checkpoint."
-        )
-
-    genome_str = genome.value
-    merge_small_clusters_threshold = (
-        0 if merge_small_clusters is None else merge_small_clusters
-    )
-    stagate_checkpoint_metadata = _build_stagate_checkpoint_metadata(
-        runs=runs,
-        genome=genome_str,
-        min_genes=min_genes,
-        min_cells=min_cells,
-        min_counts=min_counts,
-        max_counts=max_counts,
-        max_pct_mt=max_pct_mt,
-        normalize_target_sum=normalize_target_sum,
-        n_top_genes=n_top_genes,
-        hvg_flavor=hvg_flavor,
-    )
 
     out_dir = Path(f"/root/{project_name}")
     figures_dir = out_dir / "figures"
@@ -330,11 +529,12 @@ def wtOpt_task(
 
     metadata = {
         "project_name": project_name,
-        "genome": genome_str,
+        "genome": genome.value,
         "resolution": resolution,
         "n_comps": n_comps,
         "n_top_genes": n_top_genes,
         "hvg_flavor": hvg_flavor,
+        "stagate_k_cutoff": stagate_k_cutoff,
         "n_neighbors": n_neighbors,
         "clustering_backend": clustering_backend,
         "apply_harmony": apply_harmony,
@@ -370,121 +570,52 @@ def wtOpt_task(
     shutil.copy2(preprocessed_h5ad, intermediates_dir / "preprocessed.h5ad")
     _copytree_contents(preprocess_path / "figures", figures_dir)
 
-    sets = list(itertools.product(resolution, n_comps, n_neighbors, min_dist, spread))
-    logging.info("Iterating through paramter sets %s...", sets)
-
-    adata_dict = {}
-    if clustering_backend == "stagate":
-        logging.info(
-            "Loading STAGATE embedding checkpoint from %s.",
-            stagate_embedding_checkpoint.remote_path,
-        )
-        adata = pp.load_stagate_embedding_checkpoint(
-            adata,
-            stagate_embedding_checkpoint.local_path,
-            expected_metadata=stagate_checkpoint_metadata,
-        )
+    if stagate_embedding_checkpoint is not None:
         shutil.copy2(
             Path(stagate_embedding_checkpoint.local_path),
             intermediates_dir / "stagate_embedding_checkpoint.h5ad",
         )
-        sets = list(itertools.product(resolution, n_neighbors, min_dist, spread))
 
-    count = 1
-    for param_set in sets:
-        try:
-            if clustering_backend == "scanpy":
-                cr, nc, nn, md, sp = param_set
-                logging.info(
-                    "Set %d: clustering resolution %s, number of components %s, "
-                    "neighborhood size %s, umap minimum %s, umap spread %s.",
-                    count,
-                    cr,
-                    nc,
-                    nn,
-                    md,
-                    sp,
-                )
-                cr_str, md_str, sp_str = [
-                    str(param).replace(".", "-") for param in [cr, md, sp]
-                ]
-                set_str = (
-                    f"set{count}_backend-scanpy_cr{cr_str}-nc{nc}-nn{nn}-"
-                    f"md{md_str}-sp{sp_str}"
-                )
-            else:
-                cr, nn, md, sp = param_set
-                logging.info(
-                    "Set %d: STAGATE resolution %s, neighborhood size %s, "
-                    "umap minimum %s, umap spread %s.",
-                    count,
-                    cr,
-                    nn,
-                    md,
-                    sp,
-                )
-                cr_str, md_str, sp_str = [
-                    str(param).replace(".", "-") for param in [cr, md, sp]
-                ]
-                set_str = (
-                    f"set{count}_backend-stagate_cr{cr_str}-nn{nn}-"
-                    f"md{md_str}-sp{sp_str}"
-                )
-
-            set_dir = out_dir / set_str
+    successful_results = [result for result in results if result.succeeded]
+    adata_dict: Dict[str, ad.AnnData] = {}
+    for result in successful_results:
+        if result.output_dir is None:
+            continue
+        combined_path = Path(result.output_dir.local_path) / "combined.h5ad"
+        if combined_path.exists():
+            adata_dict[result.set_str] = ad.read_h5ad(combined_path)
+            set_dir = out_dir / result.set_str
             os.makedirs(set_dir, exist_ok=True)
+            shutil.copy2(combined_path, set_dir / "combined.h5ad")
 
-            adata_i = copy.deepcopy(adata)
-            if clustering_backend == "scanpy":
-                adata_i = pp.add_clusters(
-                    adata_i,
-                    cr,
-                    nc,
-                    nn,
-                    md,
-                    sp,
-                    apply_harmony=apply_harmony,
-                    merge_small_clusters=merge_small_clusters_threshold,
-                    random_state=RANDOM_STATE,
-                )
-            else:
-                adata_i = pp.add_stagate_clusters(
-                    adata_i,
-                    cr,
-                    nn,
-                    md,
-                    sp,
-                    merge_small_clusters=merge_small_clusters_threshold,
-                    random_state=RANDOM_STATE,
-                )
+    if len(successful_results) == 0:
+        warning = (
+            "No parameter sets completed successfully; skipping UMAP/spatial "
+            "summary plots."
+        )
+        logging.warning(warning)
+        message(
+            typ="warning",
+            data={
+                "title": "no successful parameter sets",
+                "body": warning,
+            },
+        )
+    else:
+        pl.combine_umaps(
+            adata_dict,
+            str(figures_dir / "all_umaps.png"),
+            html_output_path=str(out_dir / "all_umaps.html"),
+        )
 
-            adata_dict[set_str] = adata_i
-            adata_i.write(set_dir / "combined.h5ad")
-        except Exception as e:
-            logging.warning("Exception for set %d: %s", count, e)
-            message(
-                typ="warning",
-                data={
-                    "title": "failed set",
-                    "body": f"set {count} failed with Exception '{e}'",
-                },
-            )
-        count += 1
-
-    pl.combine_umaps(
-        adata_dict,
-        str(figures_dir / "all_umaps.png"),
-        html_output_path=str(out_dir / "all_umaps.html"),
-    )
-
-    pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
-    pl.combine_spatials(
-        adata_dict,
-        samples,
-        str(figures_dir / "all_spatialdim.png"),
-        pt_size=pt_size,
-        html_output_path=str(out_dir / "all_spatialdim.html"),
-    )
+        pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
+        pl.combine_spatials(
+            adata_dict,
+            samples,
+            str(figures_dir / "all_spatialdim.png"),
+            pt_size=pt_size,
+            html_output_path=str(out_dir / "all_spatialdim.html"),
+        )
 
     qc_metrics = ["n_genes_by_counts", "total_counts", "pct_counts_mt"]
     qc_pt_size = (

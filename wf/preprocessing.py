@@ -526,6 +526,7 @@ def require_stagate_module():
 
 def train_stagate_embedding(
     adata: anndata.AnnData,
+    k_cutoff: int = 6,
     random_state: int = 0,
 ) -> anndata.AnnData:
     """Train STAGATE once on HVG log-normalized expression and store embedding."""
@@ -551,7 +552,7 @@ def train_stagate_embedding(
             STAGATE_pyG.Cal_Spatial_Net(
                 adata_sub,
                 rad_cutoff=None,
-                k_cutoff=6,
+                k_cutoff=k_cutoff,
                 model="KNN",
             )
             nets.append(adata_sub.uns["Spatial_Net"])
@@ -561,7 +562,7 @@ def train_stagate_embedding(
         STAGATE_pyG.Cal_Spatial_Net(
             adata_st,
             rad_cutoff=None,
-            k_cutoff=6,
+            k_cutoff=k_cutoff,
             model="KNN",
         )
 

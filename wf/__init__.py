@@ -1,11 +1,13 @@
 from typing import List, Optional
 
+from latch import map_task
 from latch.resources.workflow import workflow
 from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule)
 
-from wf.task import preprocess_wt_task, train_stagate_task, wtOpt_task
+from wf.task import (build_wt_opt_jobs_task, opt_set_task, preprocess_wt_task,
+                     train_stagate_task, wtOpt_task)
 from wf.utils import Genome, Run
 
 metadata = LatchMetadata(
@@ -66,6 +68,13 @@ metadata = LatchMetadata(
                     message="hvg_flavor must be one of: seurat, cell_ranger, seurat_v3, seurat_v3_paper",
                 )
             ]
+        ),
+        "stagate_k_cutoff": LatchParameter(
+            display_name="STAGATE k cutoff",
+            description="Number of spatial nearest neighbors per spot when \
+                building the STAGATE KNN graph. Ignored unless \
+                `clustering_backend` is `stagate`.",
+            batch_table_column=True
         ),
         "n_neighbors": LatchParameter(
             display_name="neighborhood sizes",
@@ -193,6 +202,7 @@ def wtOpt_workflow(
     n_comps: List[int] = [30],
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
+    stagate_k_cutoff: int = 6,
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
@@ -240,18 +250,47 @@ def wtOpt_workflow(
         normalize_target_sum=normalize_target_sum,
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
+        stagate_k_cutoff=stagate_k_cutoff,
         stagate_embedding_checkpoint=stagate_embedding_checkpoint,
     )
+
+    opt_jobs = build_wt_opt_jobs_task(
+        runs=runs,
+        genome=genome,
+        project_name=project_name,
+        preprocess_dir=preprocess_dir,
+        clustering_backend=clustering_backend,
+        resolution=resolution,
+        n_comps=n_comps,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        apply_harmony=apply_harmony,
+        merge_small_clusters=merge_small_clusters,
+        min_genes=min_genes,
+        min_cells=min_cells,
+        min_counts=min_counts,
+        max_counts=max_counts,
+        max_pct_mt=max_pct_mt,
+        normalize_target_sum=normalize_target_sum,
+        n_top_genes=n_top_genes,
+        hvg_flavor=hvg_flavor,
+        stagate_k_cutoff=stagate_k_cutoff,
+        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
+    )
+    mapped_results = map_task(opt_set_task)(job=opt_jobs)
 
     results = wtOpt_task(
         preprocess_dir=preprocess_dir,
         runs=runs,
         genome=genome,
         project_name=project_name,
+        results=mapped_results,
         resolution=resolution,
         n_comps=n_comps,
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
+        stagate_k_cutoff=stagate_k_cutoff,
         n_neighbors=n_neighbors,
         clustering_backend=clustering_backend,
         apply_harmony=apply_harmony,
