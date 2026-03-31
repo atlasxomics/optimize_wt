@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from latch.resources.workflow import workflow
+from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule)
 
@@ -158,6 +159,13 @@ metadata = LatchMetadata(
                 Leave unset to use Scanpy's default behavior.",
             batch_table_column=True
         ),
+        "stagate_embedding_checkpoint": LatchParameter(
+            display_name="STAGATE embedding checkpoint",
+            description="Optional checkpoint file created by a previous \
+                STAGATE workflow run. If provided, the workflow validates and \
+                reuses `X_stagate` to skip STAGATE training.",
+            batch_table_column=True
+        ),
         "pt_size": LatchParameter(
             display_name="Override point size",
             description="Point size for spatial plot of clustering. \
@@ -197,6 +205,7 @@ def wtOpt_workflow(
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
     normalize_target_sum: Optional[float] = None,
+    stagate_embedding_checkpoint: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -222,6 +231,7 @@ def wtOpt_workflow(
         max_pct_mt=max_pct_mt,
         merge_small_clusters=merge_small_clusters,
         normalize_target_sum=normalize_target_sum,
+        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
         min_dist=min_dist,
         spread=spread,
         pt_size=pt_size,

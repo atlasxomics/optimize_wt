@@ -10,7 +10,7 @@ import scanpy as sc
 
 from latch import message
 from latch.resources.tasks import custom_task
-from latch.types import LatchDir
+from latch.types import LatchDir, LatchFile
 
 import wf.plotting as pl
 import wf.preprocessing as pp
@@ -45,6 +45,7 @@ def wtOpt_task(
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
     normalize_target_sum: Optional[float] = None,
+    stagate_embedding_checkpoint: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None
 ) -> LatchDir:
@@ -75,6 +76,24 @@ def wtOpt_task(
     merge_small_clusters_threshold = (
         0 if merge_small_clusters is None else merge_small_clusters
     )
+    stagate_checkpoint_metadata = {
+        "runs": [
+            {
+                "run_id": run.run_id,
+                "condition": utils.sanitize_condition(run.condition),
+            }
+            for run in runs
+        ],
+        "genome": genome,
+        "min_genes": min_genes,
+        "min_cells": min_cells,
+        "min_counts": min_counts,
+        "max_counts": max_counts,
+        "max_pct_mt": max_pct_mt,
+        "normalize_target_sum": normalize_target_sum,
+        "n_top_genes": n_top_genes,
+        "hvg_flavor": hvg_flavor,
+    }
     if hvg_flavor not in pp.ALLOWED_HVG_FLAVORS:
         raise ValueError(
             f"Invalid hvg_flavor '{hvg_flavor}'. Expected one of "
@@ -184,8 +203,25 @@ def wtOpt_task(
     # Iterate through parameter sets ------------------------------------------
     adata_dict = {}
     if clustering_backend == "stagate":
-        logging.info("Training STAGATE backend...")
-        adata = pp.train_stagate_embedding(adata, random_state=RANDOM_STATE)
+        if stagate_embedding_checkpoint is not None:
+            logging.info(
+                "Loading STAGATE embedding checkpoint from %s.",
+                stagate_embedding_checkpoint.remote_path,
+            )
+            adata = pp.load_stagate_embedding_checkpoint(
+                adata,
+                stagate_embedding_checkpoint.local_path,
+                expected_metadata=stagate_checkpoint_metadata,
+            )
+        else:
+            logging.info("Training STAGATE backend...")
+            adata = pp.train_stagate_embedding(adata, random_state=RANDOM_STATE)
+            checkpoint_path = f"{out_dir}/stagate_embedding_checkpoint.h5ad"
+            pp.save_stagate_embedding_checkpoint(
+                adata,
+                checkpoint_path,
+                metadata=stagate_checkpoint_metadata,
+            )
         sets = list(itertools.product(resolution, n_neighbors, min_dist, spread))
     count = 1
     for set in sets:
