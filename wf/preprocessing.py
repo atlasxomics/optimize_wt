@@ -14,7 +14,8 @@ import pandas as pd
 from scipy import io as sio
 from scipy import sparse as sp
 
-from wf.utils import get_LatchFile, Run, sanitize_condition
+from atx_common import get_LatchFile, sanitize_condition
+from wf.utils import Run
 
 
 logging.basicConfig(

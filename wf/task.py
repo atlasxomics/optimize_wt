@@ -124,7 +124,7 @@ def preprocess_wt_task(
     samples = [run.run_id for run in runs]
     if len(samples) > 1:
         logging.info("Combining objects...")
-        adata = ad.concat(adatas, label="sample")
+        adata = ad.concat(adatas, keys=samples, label="batch")
     else:
         adata = adatas[0]
 

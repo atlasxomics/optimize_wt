@@ -45,25 +45,6 @@ def _plot_spatial(
 ) -> None:
     sample_adata = _subset_for_sample_plot(adata, sample)
 
-    if _has_tissue_image(sample_adata, sample):
-        plot_kwargs = {
-            "adata": sample_adata,
-            "color": color,
-            "library_id": sample,
-            "img_key": _preferred_img_key(sample_adata, sample),
-            "spot_size": pt_size,
-            "ax": ax,
-            "show": False,
-            "title": title,
-        }
-        if categorical:
-            plot_kwargs["legend_loc"] = "right margin"
-            plot_kwargs["bw"] = True
-
-        sc.pl.spatial(**plot_kwargs)
-        ax.set_axis_off()
-        return
-
     if categorical:
         sq.pl.spatial_scatter(
             sample_adata,

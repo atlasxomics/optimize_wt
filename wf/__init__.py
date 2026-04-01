@@ -8,7 +8,8 @@ from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
 
 from wf.task import (build_wt_opt_jobs_task, opt_set_task, preprocess_wt_task,
                      train_stagate_task, wtOpt_task)
-from wf.utils import Genome, Run
+from atx_common import Genome
+from wf.utils import Run
 
 flow = [
     Params("runs"),

@@ -30,6 +30,7 @@ run apt-get update && \
 
 COPY requirements.txt /opt/latch/requirements.txt
 RUN pip install --requirement /opt/latch/requirements.txt
+RUN pip install https://github.com/atlasxomics/atx-common/archive/refs/tags/v0.1.0.tar.gz
 RUN pip install --no-cache-dir setuptools
 RUN pip install --no-cache-dir torch==2.8.0
 RUN git clone https://github.com/RucDongLab/STAGATE_pyG.git /opt/STAGATE_pyG
