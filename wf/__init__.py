@@ -12,7 +12,14 @@ from atx_common import Genome
 from wf.utils import Run
 
 flow = [
-    Params("runs"),
+    Section(
+        "Runs",
+        Text(
+            "For each Run, set `gex_dir` to the STAR/STARsolo GeneFull for"
+            "standard processing."
+        ),
+        Params("runs"),
+    ),
     Section(
         "Global Parameters",
         Params("project_name"),
@@ -82,8 +89,9 @@ metadata = LatchMetadata(
             display_name="runs",
             description="List of runs to be analyzed; each run must contain a \
                 run_id and a path to outputs from an alignment Workflow \
-                (i.e., STAR); optional: condition.  Note that multiple \
-                Conditions must be separted by '_' (i.e., Female-control).",
+                (i.e., STAR); optional: condition. Point `gex_dir` at the \
+                STAR output directory ending in `GeneFull` for standard \
+                processing.",
             batch_table_column=True,
             samplesheet=True
         ),
