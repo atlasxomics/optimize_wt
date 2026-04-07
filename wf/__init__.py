@@ -15,7 +15,7 @@ flow = [
     Section(
         "Runs",
         Text(
-            "For each Run, set `gex_dir` to the STAR/STARsolo GeneFull for"
+            "For each Run, set `gex_dir` to the STAR/STARsolo GeneFull for "
             "standard processing."
         ),
         Params("runs"),
