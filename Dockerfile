@@ -24,9 +24,23 @@ arg DEBIAN_FRONTEND=noninteractive
 # DO NOT REMOVE
 run pip install latch==2.53.10
 run mkdir /opt/latch
+run apt-get update && \
+    apt-get install -y --no-install-recommends build-essential git && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /opt/latch/requirements.txt
 RUN pip install --requirement /opt/latch/requirements.txt
+RUN pip install https://github.com/atlasxomics/atx-common/archive/refs/tags/v0.1.0.tar.gz
+RUN pip install --no-cache-dir setuptools
+RUN pip install --no-cache-dir torch==2.8.0
+RUN git clone https://github.com/RucDongLab/STAGATE_pyG.git /opt/STAGATE_pyG
+RUN pip install --no-cache-dir torch-geometric==2.6.1
+RUN pip install --no-cache-dir --no-binary=torch-scatter torch-scatter
+RUN pip install --no-cache-dir --no-binary=torch-sparse torch-sparse
+RUN pip install --no-cache-dir --no-binary=torch-cluster torch-cluster
+RUN cd /opt/STAGATE_pyG && \
+    python setup.py build && \
+    python setup.py install
 
 # Copy workflow data (use .dockerignore to skip files)
 copy . /root/

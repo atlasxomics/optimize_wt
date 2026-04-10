@@ -10,6 +10,69 @@ from typing import List
 from typing import Optional
 
 
+def _subset_for_sample_plot(adata: anndata.AnnData, sample: str) -> anndata.AnnData:
+    sample_adata = adata[adata.obs["sample"] == sample].copy()
+    if "spatial" in adata.uns and sample in adata.uns["spatial"]:
+        sample_adata.uns["spatial"] = {sample: adata.uns["spatial"][sample]}
+
+    return sample_adata
+
+
+def _has_tissue_image(adata: anndata.AnnData, sample: str) -> bool:
+    spatial_uns = adata.uns.get("spatial", {}).get(sample, {})
+    return len(spatial_uns.get("images", {})) > 0
+
+
+def _preferred_img_key(adata: anndata.AnnData, sample: str) -> Optional[str]:
+    spatial_uns = adata.uns.get("spatial", {}).get(sample, {})
+    images = spatial_uns.get("images", {})
+    if "hires" in images:
+        return "hires"
+    if "lowres" in images:
+        return "lowres"
+
+    return None
+
+
+def _plot_spatial(
+    adata: anndata.AnnData,
+    sample: str,
+    color: str,
+    ax,
+    title: str,
+    pt_size: float,
+    categorical: bool,
+) -> None:
+    sample_adata = _subset_for_sample_plot(adata, sample)
+
+    if categorical:
+        sq.pl.spatial_scatter(
+            sample_adata,
+            color=color,
+            size=pt_size,
+            shape=None,
+            library_id=sample,
+            ax=ax,
+            title=title,
+        )
+        ax.set_axis_off()
+        return
+
+    sq.pl.spatial_scatter(
+        sample_adata,
+        color=color,
+        size=pt_size,
+        shape=None,
+        ax=ax,
+        library_id=sample,
+        title=title,
+        colorbar=False,
+    )
+    if len(ax.collections) > 0:
+        ax.figure.colorbar(ax.collections[0], ax=ax, shrink=0.7)
+    ax.set_axis_off()
+
+
 def _get_page_saver(output_path: str) -> tuple[Callable, Callable, bool, List[str]]:
     """Return a page saver and closer for PDF or image outputs.
 
@@ -209,16 +272,15 @@ def combine_spatials(
 
                 for j, s in enumerate(batch):
                     adata = adata_dict[s]
-                    sq.pl.spatial_scatter(
-                        adata[adata.obs["sample"] == sample],
+                    _plot_spatial(
                         color="cluster",
-                        size=pt_size,
-                        shape=None,
-                        library_id=sample,
+                        adata=adata,
+                        sample=sample,
                         ax=axs[j],
-                        title=f"{sample}: {s}"
+                        title=f"{sample}: {s}",
+                        pt_size=pt_size,
+                        categorical=True,
                     )
-                    axs[j].axis("off")
 
                 # Ensure empty plots are not displayed
                 for k in range(len(axs)):
@@ -279,17 +341,15 @@ def plot_spatial_qc(
                 for col_idx, qc_metric in enumerate(qc_metrics):
 
                     ax = axs[row_idx][col_idx]
-                    sq.pl.spatial_scatter(
-                        adata[adata.obs['sample'] == sample],
+                    _plot_spatial(
+                        adata=adata,
+                        sample=sample,
                         color=qc_metric,
-                        size=pt_size,
-                        shape=None,
                         ax=ax,
-                        library_id=sample,
                         title=f"{sample} : {qc_metric}",
-                        colorbar=False
+                        pt_size=pt_size,
+                        categorical=False,
                     )
-                    cbar = fig.colorbar(ax.collections[0], ax=ax, shrink=0.7)
 
             plt.tight_layout()
             page_captions.append("Samples: " + ", ".join(sample_batch))
@@ -305,3 +365,50 @@ def plot_spatial_qc(
             captions=page_captions,
             html_output_path=html_output_path
         )
+
+
+def plot_spatial_coherence(
+    coherence_df,
+    output_path: str,
+) -> None:
+    """Plot Moran's I spatial coherence versus number of clusters."""
+
+    if coherence_df.empty:
+        return
+
+    plot_df = coherence_df.sort_values(["n_clusters", "morans_I"]).reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.scatter(
+        plot_df["n_clusters"],
+        plot_df["morans_I"],
+        s=40,
+        color="steelblue",
+        edgecolors="black",
+        linewidths=0.4,
+    )
+    ax.plot(
+        plot_df["n_clusters"],
+        plot_df["morans_I"],
+        color="steelblue",
+        alpha=0.5,
+        linewidth=1.0,
+    )
+    ax.set_xlabel("Number of clusters")
+    ax.set_ylabel("Moran's I")
+    ax.set_title("Spatial coherence across parameter sets")
+    ax.grid(alpha=0.2, linewidth=0.5)
+
+    best_idx = plot_df["morans_I"].idxmax()
+    best = plot_df.loc[best_idx]
+    ax.annotate(
+        f"Best: {best['set']}",
+        (best["n_clusters"], best["morans_I"]),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=8,
+    )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
