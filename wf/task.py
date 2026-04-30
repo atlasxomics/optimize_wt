@@ -82,7 +82,7 @@ def _copytree_contents(src: Path, dst: Path) -> None:
             shutil.copy2(item, target)
 
 
-@custom_task(cpu=4, memory=64, storage_gib=1000)
+@custom_task(cpu=4, memory=128, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
@@ -366,7 +366,7 @@ def build_wt_opt_jobs_task(
     return jobs
 
 
-@custom_task(cpu=4, memory=64, storage_gib=1000)
+@custom_task(cpu=4, memory=128, storage_gib=1000)
 def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
     set_str = utils.format_wt_opt_set_str(
         set_index=job.set_index,
