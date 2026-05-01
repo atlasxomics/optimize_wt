@@ -1,5 +1,6 @@
 anndata==0.10.8
 h5py==3.11.0
+harmonypy==0.0.10
 matplotlib==3.8.3
 pandas==2.1.1
 scikit-misc==0.3.1

@@ -73,7 +73,7 @@ Iterative Parameters:
 
 Advanced Options:
 
-- `apply_harmony`: optional batch correction for multi-sample Scanpy runs
+- `apply_harmony`: optional batch correction for multi-sample runs
 - `merge_small_clusters`: merge undersized clusters after Leiden
 - `stagate_k_cutoff`: KNN graph size used when training STAGATE
 - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
@@ -89,9 +89,10 @@ Advanced Options:
 `stagate` backend:
 
 - trains STAGATE once, optionally on GPU
+- optionally applies Harmony to the STAGATE embedding for multi-sample runs
 - reuses the learned embedding across mapped parameter-set tasks
 - iterates over `resolution x n_neighbors`
-- ignores `n_comps` and `apply_harmony`
+- ignores `n_comps`
 
 If `stagate_embedding_checkpoint` is provided, the workflow validates it
 against the current preprocessing settings and skips retraining if it matches.

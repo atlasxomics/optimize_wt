@@ -43,6 +43,7 @@ def _build_stagate_checkpoint_metadata(
     n_top_genes: int,
     hvg_flavor: str,
     stagate_k_cutoff: int,
+    apply_harmony: bool,
 ) -> Dict[str, object]:
     return {
         "runs": [
@@ -62,6 +63,7 @@ def _build_stagate_checkpoint_metadata(
         "n_top_genes": n_top_genes,
         "hvg_flavor": hvg_flavor,
         "stagate_k_cutoff": stagate_k_cutoff,
+        "apply_harmony": apply_harmony,
     }
 
 
@@ -213,6 +215,7 @@ def train_stagate_task(
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
     stagate_k_cutoff: int = 6,
+    apply_harmony: bool = True,
     stagate_embedding_checkpoint: Optional[LatchFile] = None,
 ) -> Optional[LatchFile]:
     if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
@@ -242,6 +245,7 @@ def train_stagate_task(
     adata = pp.train_stagate_embedding(
         adata,
         k_cutoff=stagate_k_cutoff,
+        apply_harmony=apply_harmony,
         random_state=RANDOM_STATE,
     )
 
@@ -257,6 +261,7 @@ def train_stagate_task(
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
         stagate_k_cutoff=stagate_k_cutoff,
+        apply_harmony=apply_harmony,
     )
 
     out_path = Path(f"/root/{project_name}_stagate_embedding_checkpoint.h5ad")
@@ -316,6 +321,7 @@ def build_wt_opt_jobs_task(
                 n_top_genes=n_top_genes,
                 hvg_flavor=hvg_flavor,
                 stagate_k_cutoff=stagate_k_cutoff,
+                apply_harmony=apply_harmony,
             ),
             sort_keys=True,
         )

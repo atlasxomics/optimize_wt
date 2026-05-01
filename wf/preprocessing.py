@@ -464,7 +464,7 @@ def add_clusters(
 
     if n_runs > 1 and apply_harmony:
         logging.info("Performing batch correction with Harmony...")
-        sc.external.pp.harmony_integrate(adata, batch="sample")
+        sc.external.pp.harmony_integrate(adata, key="sample")
         rep = "X_pca_harmony"
     else:
         rep = "X_pca"
@@ -528,6 +528,7 @@ def require_stagate_module():
 def train_stagate_embedding(
     adata: anndata.AnnData,
     k_cutoff: int = 6,
+    apply_harmony: bool = True,
     random_state: int = 0,
 ) -> anndata.AnnData:
     """Train STAGATE once on HVG log-normalized expression and store embedding."""
@@ -586,6 +587,25 @@ def train_stagate_embedding(
 
     adata_st = STAGATE_pyG.train_STAGATE(adata_st, **train_kwargs)
     adata.obsm["X_stagate"] = adata_st.obsm["STAGATE"].copy()
+    adata.obsm["X_stagate_raw"] = adata.obsm["X_stagate"].copy()
+
+    n_runs = 1
+    try:
+        n_runs = len(adata.obs["sample"].unique())
+    except KeyError as e:
+        logging.warning(
+            f"Exception {e}: Please add metadata to combined AnnData."
+        )
+
+    if n_runs > 1 and apply_harmony:
+        logging.info("Performing Harmony batch correction on STAGATE embedding...")
+        sc.external.pp.harmony_integrate(
+            adata,
+            key="sample",
+            basis="X_stagate",
+            adjusted_basis="X_stagate_harmony",
+        )
+        adata.obsm["X_stagate"] = adata.obsm["X_stagate_harmony"].copy()
 
     return adata
 
@@ -664,6 +684,7 @@ def load_stagate_embedding_checkpoint(
             "`uns['stagate_checkpoint_metadata_json']`."
         )
     stored_metadata = json.loads(stored_metadata_json)
+    stored_metadata.setdefault("apply_harmony", False)
     if stored_metadata != expected_metadata:
         raise ValueError(
             "STAGATE checkpoint preprocessing metadata does not match the "

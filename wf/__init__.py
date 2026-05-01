@@ -168,9 +168,11 @@ metadata = LatchMetadata(
             ]
         ),
         "apply_harmony": LatchParameter(
-            display_name="apply harmony integration (scanpy only)",
+            display_name="apply harmony integration",
             description="Apply Harmony batch correction across samples before \
-                neighbor graph construction. Ignored for single-sample runs.",
+                neighbor graph construction. For `scanpy`, Harmony is applied \
+                to the PCA embedding. For `stagate`, Harmony is applied to the \
+                STAGATE embedding. Ignored for single-sample runs.",
             batch_table_column=True
         ),
         "min_dist": LatchParameter(
@@ -347,7 +349,7 @@ def wtOpt_workflow(
     - `spread`
 
     Advanced Options:
-    - `apply_harmony`: optional batch correction for multi-sample Scanpy runs
+    - `apply_harmony`: optional batch correction for multi-sample runs
     - `merge_small_clusters`: merge undersized clusters after Leiden
     - `stagate_k_cutoff`: KNN graph size used when training STAGATE
     - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
@@ -361,9 +363,10 @@ def wtOpt_workflow(
 
     `stagate` backend:
     - trains STAGATE once, optionally on GPU
+    - optionally applies Harmony to the STAGATE embedding for multi-sample runs
     - reuses the learned embedding across mapped parameter-set tasks
     - iterates over `resolution x n_neighbors`
-    - ignores `n_comps` and `apply_harmony`
+    - ignores `n_comps`
 
     If `stagate_embedding_checkpoint` is provided, the workflow validates it
     against the current preprocessing settings and skips retraining if it
@@ -431,6 +434,7 @@ def wtOpt_workflow(
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
         stagate_k_cutoff=stagate_k_cutoff,
+        apply_harmony=apply_harmony,
         stagate_embedding_checkpoint=stagate_embedding_checkpoint,
     )
 
