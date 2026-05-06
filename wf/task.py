@@ -175,7 +175,7 @@ def _write_cluster_marker_outputs(
 
     figures_dir = out_dir / "figures"
     os.makedirs(figures_dir, exist_ok=True)
-    pl.plot_marker_heatmap(
+    marker_heatmap = pl.plot_marker_heatmap(
         marker_adata,
         top_genes_per_cluster,
         str(figures_dir / f"cluster_marker_heatmap_top{marker_top_n}.png"),
@@ -187,6 +187,17 @@ def _write_cluster_marker_outputs(
         str(figures_dir / f"deg_heatmap_top{marker_top_n}_compact_hires.pdf"),
         marker_top_n=marker_top_n,
     )
+    adata.uns["cluster_marker_heatmap"] = marker_heatmap
+    adata.uns["cluster_marker_heatmap_params"] = {
+        "included_gene_count": int(keep_genes.sum()),
+        "excluded_gene_count": int((~keep_genes).sum()),
+        "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
+        "expression_layer": "log1p",
+        "pval_cutoff": 0.05,
+        "log2fc_min": 0.25,
+        "marker_top_n": marker_top_n,
+        "values": "column-wise z-score of mean log1p expression, clipped to [-3, 3]",
+    }
 
 
 @custom_task(cpu=4, memory=128, storage_gib=1000)

@@ -258,7 +258,7 @@ def plot_marker_heatmap(
     output_path: str,
     groupby: str = "cluster",
     marker_top_n: int = 50,
-) -> None:
+) -> pd.DataFrame:
     """Plot a compact DEG heatmap using mean log expression by cluster."""
 
     clusters = list(top_genes_per_cluster.keys())
@@ -392,6 +392,8 @@ def plot_marker_heatmap(
     plt.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+    return heatmap_zscore
 
 
 def combine_spatials(
