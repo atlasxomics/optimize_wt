@@ -61,6 +61,14 @@ ALLOWED_CLUSTERING_BACKENDS = (
     "scanpy",
     "stagate",
 )
+EXPECTED_GEX_RAW_PARENT_SUFFIX = "_STAR_outputsGeneFull"
+
+
+GEX_FILE_GROUPS = {
+    "matrix file": MTX_CANDIDATES,
+    "gene table": GENE_TABLE_CANDIDATES,
+    "barcode file": BARCODE_CANDIDATES,
+}
 
 
 def _resolve_local_file(
@@ -74,6 +82,88 @@ def _resolve_local_file(
 
     raise FileNotFoundError(
         f"Could not find any of {candidates} in '{directory}'."
+    )
+
+
+def _has_local_candidate(directory: Path, candidates: List[str]) -> bool:
+    return any((directory / candidate).exists() for candidate in candidates)
+
+
+def _missing_gex_file_groups(gex_dir: Path) -> List[str]:
+    return [
+        label for label, candidates in GEX_FILE_GROUPS.items()
+        if not _has_local_candidate(gex_dir, candidates)
+    ]
+
+
+def _matches_expected_gex_path(path: str) -> bool:
+    parts = path.rstrip("/").split("/")
+    if len(parts) < 2:
+        return False
+
+    return (
+        parts[-1] == "raw"
+        and parts[-2].endswith(EXPECTED_GEX_RAW_PARENT_SUFFIX)
+    )
+
+
+def _find_nested_gex_raw_dirs(directory: Path) -> List[str]:
+    if not directory.exists():
+        return []
+
+    raw_dirs = [
+        path for path in directory.rglob("raw")
+        if path.is_dir() and path.parent.name.endswith(EXPECTED_GEX_RAW_PARENT_SUFFIX)
+    ]
+
+    return [
+        str(path.relative_to(directory)) for path in sorted(raw_dirs)[:5]
+    ]
+
+
+def _validate_gex_dir(run: Run) -> None:
+    gex_dir = Path(run.gex_dir.local_path)
+    missing_groups = _missing_gex_file_groups(gex_dir)
+    remote_path = run.gex_dir.remote_path.rstrip("/")
+    matches_expected_path = _matches_expected_gex_path(remote_path)
+
+    if len(missing_groups) == 0:
+        return
+
+    if matches_expected_path:
+        raise FileNotFoundError(
+            f"Invalid gex_dir for run '{run.run_id}': selected "
+            f"'{remote_path}', which matches the expected STAR GeneFull raw "
+            f"path pattern, but it is missing required files: "
+            f"{', '.join(missing_groups)}. Expected this directory to directly "
+            f"contain one of {MTX_CANDIDATES}, one of {GENE_TABLE_CANDIDATES}, "
+            f"and one of {BARCODE_CANDIDATES}."
+        )
+
+    nested_raw_dirs = _find_nested_gex_raw_dirs(gex_dir)
+    nested_hint = ""
+    if len(nested_raw_dirs) > 0:
+        nested_dir_label = (
+            "directory" if len(nested_raw_dirs) == 1 else "directories"
+        )
+        nested_hint = (
+            f" Found possible nested raw {nested_dir_label} under the "
+            f"selected folder: {nested_raw_dirs}."
+        )
+
+    raise ValueError(
+        f"Invalid gex_dir for run '{run.run_id}': selected '{remote_path}', "
+        f"but this workflow expects the RNA-seq QC STAR GeneFull raw output "
+        f"directory. The path should end with "
+        f"'*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw' and directly contain "
+        f"one of {MTX_CANDIDATES}, one of {GENE_TABLE_CANDIDATES}, and one of "
+        f"{BARCODE_CANDIDATES}. The selected directory is missing: "
+        f"{', '.join(missing_groups)}. Hints: choose the nested "
+        f"'*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw' directory inside the "
+        f"RNA-seq QC output, not the top-level '*_star' output folder. "
+        f"For a selected parent folder, the expected target usually looks like "
+        f"'{remote_path}/*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw'."
+        f"{nested_hint}"
     )
 
 
@@ -250,6 +340,7 @@ def _load_spatial_assets(run: Run) -> dict:
 
 def _load_run_adata(run: Run) -> anndata.AnnData:
     gex_dir = Path(run.gex_dir.local_path)
+    _validate_gex_dir(run)
     gene_table = _read_gene_table(gex_dir)
     barcodes = _read_barcodes(gex_dir)
     matrix = _read_count_matrix(
