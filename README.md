@@ -75,6 +75,10 @@ Advanced Options:
 
 - `apply_harmony`: optional batch correction for multi-sample runs
 - `merge_small_clusters`: merge undersized clusters after Leiden
+- `compute_cluster_markers`: rank marker genes for each cluster in each
+  parameter set
+- `marker_top_n`: number of top marker genes per cluster to include in marker
+  summaries and heatmaps
 - `stagate_k_cutoff`: KNN graph size used when training STAGATE
 - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
 
@@ -105,7 +109,8 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - `medians.csv`
 - `spatial_coherence.csv` when spatial coherence can be computed
 - `figures/` with UMAP, spatial clustering, and spatial QC plots
-- one subdirectory per successful parameter set containing `combined.h5ad`
+- one subdirectory per successful parameter set containing `combined.h5ad`,
+  optional DEG CSVs, and an optional compact marker-gene heatmap
 - `intermediates/` containing the preprocessed AnnData and, for STAGATE runs,
   the STAGATE embedding checkpoint
 

@@ -84,6 +84,111 @@ def _copytree_contents(src: Path, dst: Path) -> None:
             shutil.copy2(item, target)
 
 
+def _write_cluster_marker_outputs(
+    adata: ad.AnnData,
+    out_dir: Path,
+    marker_top_n: int,
+) -> None:
+    if marker_top_n < 1:
+        raise ValueError("marker_top_n must be at least 1.")
+    if "cluster" not in adata.obs:
+        raise KeyError("Cannot calculate cluster markers: missing obs['cluster'].")
+    if "log1p" not in adata.layers:
+        raise KeyError(
+            "Cannot calculate cluster markers: missing adata.layers['log1p']."
+        )
+
+    n_clusters = int(adata.obs["cluster"].nunique())
+    if n_clusters < 2:
+        logging.warning(
+            "Skipping cluster marker calculation because only %d cluster is present.",
+            n_clusters,
+        )
+        return
+
+    genes = adata.var_names.astype(str)
+    genes_upper = genes.str.upper()
+    keep_genes = ~(
+        genes_upper.str.startswith("MT-")
+        | genes_upper.str.startswith("RPS")
+        | genes_upper.str.startswith("RPL")
+        | genes_upper.str.startswith("MTRNR")
+    )
+    marker_adata = adata[:, keep_genes].copy()
+    marker_adata.X = adata.layers["log1p"][:, keep_genes].copy()
+    marker_adata.obs["cluster"] = marker_adata.obs["cluster"].astype(str)
+    clusters = sorted(
+        marker_adata.obs["cluster"].unique(),
+        key=lambda cluster: (
+            0,
+            int(cluster),
+        ) if str(cluster).isdigit() else (1, str(cluster)),
+    )
+
+    sc.tl.rank_genes_groups(
+        marker_adata,
+        groupby="cluster",
+        method="wilcoxon",
+        use_raw=False,
+        pts=True,
+        key_added="cluster_markers",
+    )
+    deg_frames = []
+    top_frames = []
+    top_genes_per_cluster: Dict[str, List[str]] = {}
+    for cluster in clusters:
+        deg_df = sc.get.rank_genes_groups_df(
+            marker_adata,
+            group=cluster,
+            key="cluster_markers",
+            pval_cutoff=0.05,
+            log2fc_min=0.25,
+        )
+        deg_df.insert(0, "cluster", cluster)
+        deg_frames.append(deg_df)
+
+        top_df = sc.get.rank_genes_groups_df(
+            marker_adata,
+            group=cluster,
+            key="cluster_markers",
+            pval_cutoff=0.05,
+        ).head(marker_top_n)
+        top_df.insert(0, "cluster", cluster)
+        top_frames.append(top_df)
+        top_genes_per_cluster[cluster] = top_df["names"].astype(str).tolist()
+
+    if len(deg_frames) == 0:
+        raise ValueError("No clusters were available for DEG output.")
+
+    markers_df = pd.concat(deg_frames, ignore_index=True)
+    markers_df.to_csv(out_dir / "cluster_markers.csv", index=False)
+    markers_df.to_csv(out_dir / "deg_clusters.csv", index=False)
+    top_markers_df = pd.concat(top_frames, ignore_index=True)
+    top_markers_df.to_csv(
+        out_dir / f"cluster_markers_top{marker_top_n}.csv",
+        index=False,
+    )
+    top_markers_df.to_csv(
+        out_dir / f"deg_clusters_top{marker_top_n}.csv",
+        index=False,
+    )
+
+    figures_dir = out_dir / "figures"
+    os.makedirs(figures_dir, exist_ok=True)
+    pl.plot_marker_heatmap(
+        marker_adata,
+        top_genes_per_cluster,
+        str(figures_dir / f"cluster_marker_heatmap_top{marker_top_n}.png"),
+        marker_top_n=marker_top_n,
+    )
+    pl.plot_marker_heatmap(
+        marker_adata,
+        top_genes_per_cluster,
+        str(figures_dir / f"deg_heatmap_top{marker_top_n}_compact_hires.pdf"),
+        marker_top_n=marker_top_n,
+    )
+
+
 @custom_task(cpu=4, memory=128, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
@@ -286,6 +391,8 @@ def build_wt_opt_jobs_task(
     spread: float,
     apply_harmony: bool = True,
     merge_small_clusters: Optional[int] = 200,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
     min_genes: int = 0,
     min_cells: int = 0,
     min_counts: int = 0,
@@ -302,6 +409,8 @@ def build_wt_opt_jobs_task(
             f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
             f"{pp.ALLOWED_CLUSTERING_BACKENDS}."
         )
+    if marker_top_n < 1:
+        raise ValueError("marker_top_n must be at least 1.")
 
     merge_small_clusters_threshold = (
         0 if merge_small_clusters is None else merge_small_clusters
@@ -344,6 +453,8 @@ def build_wt_opt_jobs_task(
                     preprocess_dir=preprocess_dir,
                     apply_harmony=apply_harmony,
                     merge_small_clusters=merge_small_clusters_threshold,
+                    compute_cluster_markers=compute_cluster_markers,
+                    marker_top_n=marker_top_n,
                     stagate_expected_metadata_json=stagate_expected_metadata_json,
                 )
             )
@@ -364,6 +475,8 @@ def build_wt_opt_jobs_task(
                 preprocess_dir=preprocess_dir,
                 apply_harmony=apply_harmony,
                 merge_small_clusters=merge_small_clusters_threshold,
+                compute_cluster_markers=compute_cluster_markers,
+                marker_top_n=marker_top_n,
                 stagate_embedding_checkpoint=stagate_embedding_checkpoint,
                 stagate_expected_metadata_json=stagate_expected_metadata_json,
             )
@@ -451,6 +564,20 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 random_state=RANDOM_STATE,
             )
 
+        if job.compute_cluster_markers:
+            try:
+                _write_cluster_marker_outputs(
+                    adata,
+                    out_dir,
+                    marker_top_n=job.marker_top_n,
+                )
+            except Exception as e:
+                logging.warning(
+                    "Cluster marker output failed for %s: %s",
+                    set_str,
+                    e,
+                )
+
         adata.write(out_dir / "combined.h5ad")
         return utils.WTOptSetResult(
             set_index=job.set_index,
@@ -506,6 +633,8 @@ def wtOpt_task(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
     normalize_target_sum: Optional[float] = None,
     stagate_embedding_checkpoint: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
@@ -552,6 +681,8 @@ def wtOpt_task(
         "max_counts": max_counts,
         "max_pct_mt": max_pct_mt,
         "merge_small_clusters": merge_small_clusters,
+        "compute_cluster_markers": compute_cluster_markers,
+        "marker_top_n": marker_top_n,
         "normalize_target_sum": normalize_target_sum,
         "pt_size": pt_size,
         "qc_pt_size": qc_pt_size,
@@ -593,6 +724,22 @@ def wtOpt_task(
             set_dir = out_dir / result.set_str
             os.makedirs(set_dir, exist_ok=True)
             shutil.copy2(combined_path, set_dir / "combined.h5ad")
+            for pattern in ("cluster_markers*.csv", "deg_clusters*.csv"):
+                for marker_path in combined_path.parent.glob(pattern):
+                    shutil.copy2(marker_path, set_dir / marker_path.name)
+            marker_figures_dir = combined_path.parent / "figures"
+            if marker_figures_dir.exists():
+                set_figures_dir = set_dir / "figures"
+                os.makedirs(set_figures_dir, exist_ok=True)
+                for pattern in (
+                    "cluster_marker_heatmap*.png",
+                    "deg_heatmap*.pdf",
+                ):
+                    for marker_heatmap in marker_figures_dir.glob(pattern):
+                        shutil.copy2(
+                            marker_heatmap,
+                            set_figures_dir / marker_heatmap.name,
+                        )
 
     if len(successful_results) == 0:
         warning = (

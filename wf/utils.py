@@ -67,6 +67,8 @@ class WTOptSetInput:
     n_comps: Optional[int] = None
     apply_harmony: bool = True
     merge_small_clusters: int = 0
+    compute_cluster_markers: bool = True
+    marker_top_n: int = 50
     stagate_embedding_checkpoint: Optional[LatchFile] = None
     stagate_expected_metadata_json: Optional[str] = None
 

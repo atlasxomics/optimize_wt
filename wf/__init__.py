@@ -63,6 +63,11 @@ flow = [
         Params("merge_small_clusters"),
         Params("apply_harmony"),
         Section(
+            "Cluster Markers",
+            Params("compute_cluster_markers"),
+            Params("marker_top_n"),
+        ),
+        Section(
             "UMAP Display",
             Params("min_dist"),
             Params("spread"),
@@ -228,6 +233,19 @@ metadata = LatchMetadata(
                 its nearest cluster in embedding space. Set to 0 to disable.",
             batch_table_column=True
         ),
+        "compute_cluster_markers": LatchParameter(
+            display_name="compute cluster marker genes",
+            description="Rank marker genes for each cluster in every \
+                optimization parameter set and write marker tables plus a \
+                heatmap.",
+            batch_table_column=True
+        ),
+        "marker_top_n": LatchParameter(
+            display_name="marker genes per cluster",
+            description="Number of top marker genes per cluster to include in \
+                marker summary tables and heatmaps.",
+            batch_table_column=True
+        ),
         "normalize_target_sum": LatchParameter(
             display_name="normalize target sum",
             description="Optional target sum for `scanpy.pp.normalize_total`. \
@@ -281,6 +299,8 @@ def wtOpt_workflow(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
     normalize_target_sum: Optional[float] = None,
     stagate_embedding_checkpoint: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
@@ -351,6 +371,8 @@ def wtOpt_workflow(
     Advanced Options:
     - `apply_harmony`: optional batch correction for multi-sample runs
     - `merge_small_clusters`: merge undersized clusters after Leiden
+    - `compute_cluster_markers`: rank marker genes for each cluster
+    - `marker_top_n`: top marker genes per cluster for marker tables/heatmaps
     - `stagate_k_cutoff`: KNN graph size used when training STAGATE
     - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
 
@@ -451,6 +473,8 @@ def wtOpt_workflow(
         spread=spread,
         apply_harmony=apply_harmony,
         merge_small_clusters=merge_small_clusters,
+        compute_cluster_markers=compute_cluster_markers,
+        marker_top_n=marker_top_n,
         min_genes=min_genes,
         min_cells=min_cells,
         min_counts=min_counts,
@@ -484,6 +508,8 @@ def wtOpt_workflow(
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
         merge_small_clusters=merge_small_clusters,
+        compute_cluster_markers=compute_cluster_markers,
+        marker_top_n=marker_top_n,
         normalize_target_sum=normalize_target_sum,
         stagate_embedding_checkpoint=stagate_embedding_checkpoint,
         min_dist=min_dist,
