@@ -161,17 +161,23 @@ def _write_cluster_marker_outputs(
         raise ValueError("No clusters were available for DEG output.")
 
     markers_df = pd.concat(deg_frames, ignore_index=True)
-    markers_df.to_csv(out_dir / "cluster_markers.csv", index=False)
     markers_df.to_csv(out_dir / "deg_clusters.csv", index=False)
     top_markers_df = pd.concat(top_frames, ignore_index=True)
-    top_markers_df.to_csv(
-        out_dir / f"cluster_markers_top{marker_top_n}.csv",
-        index=False,
-    )
     top_markers_df.to_csv(
         out_dir / f"deg_clusters_top{marker_top_n}.csv",
         index=False,
     )
+    adata.uns["cluster_marker_degs"] = markers_df
+    adata.uns["cluster_marker_degs_params"] = {
+        "groupby": "cluster",
+        "method": "wilcoxon",
+        "expression_layer": "log1p",
+        "pval_cutoff": 0.05,
+        "log2fc_min": 0.25,
+        "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
+        "included_gene_count": int(keep_genes.sum()),
+        "excluded_gene_count": int((~keep_genes).sum()),
+    }
 
     figures_dir = out_dir / "figures"
     os.makedirs(figures_dir, exist_ok=True)
@@ -735,9 +741,8 @@ def wtOpt_task(
             set_dir = out_dir / result.set_str
             os.makedirs(set_dir, exist_ok=True)
             shutil.copy2(combined_path, set_dir / "combined.h5ad")
-            for pattern in ("cluster_markers*.csv", "deg_clusters*.csv"):
-                for marker_path in combined_path.parent.glob(pattern):
-                    shutil.copy2(marker_path, set_dir / marker_path.name)
+            for marker_path in combined_path.parent.glob("deg_clusters*.csv"):
+                shutil.copy2(marker_path, set_dir / marker_path.name)
             marker_figures_dir = combined_path.parent / "figures"
             if marker_figures_dir.exists():
                 set_figures_dir = set_dir / "figures"
