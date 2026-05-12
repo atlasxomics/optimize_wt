@@ -7,7 +7,7 @@ import matplotlib.image as mpimg
 import numpy as np
 import squidpy as sq
 
-from typing import Any, Dict, List, Union
+from typing import List, Union
 from pathlib import Path
 
 import pandas as pd
@@ -698,91 +698,6 @@ def train_stagate_embedding(
         )
         adata.obsm["X_stagate"] = adata.obsm["X_stagate_harmony"].copy()
 
-    return adata
-
-
-def save_stagate_embedding_checkpoint(
-    adata: anndata.AnnData,
-    output_path: Union[Path, str],
-    metadata: Dict[str, Any],
-) -> Path:
-    """Write a minimal checkpoint containing the trained STAGATE embedding."""
-
-    if "X_stagate" not in adata.obsm:
-        raise ValueError(
-            "Cannot save STAGATE checkpoint without `adata.obsm['X_stagate']`."
-        )
-
-    obs = pd.DataFrame(index=adata.obs_names.copy())
-    if "sample" in adata.obs.columns:
-        obs["sample"] = adata.obs["sample"].astype(str).values
-
-    checkpoint = anndata.AnnData(
-        X=sp.csr_matrix((adata.n_obs, 0), dtype=np.float32),
-        obs=obs,
-        var=pd.DataFrame(index=pd.Index([], dtype=str)),
-    )
-    checkpoint.obsm["X_stagate"] = np.asarray(adata.obsm["X_stagate"]).copy()
-    checkpoint.uns["stagate_checkpoint_metadata_json"] = json.dumps(
-        metadata,
-        sort_keys=True,
-    )
-
-    output_path = Path(output_path)
-    checkpoint.write(output_path)
-    return output_path
-
-
-def load_stagate_embedding_checkpoint(
-    adata: anndata.AnnData,
-    checkpoint_path: Union[Path, str],
-    expected_metadata: Dict[str, Any],
-) -> anndata.AnnData:
-    """Load and validate a STAGATE embedding checkpoint."""
-
-    checkpoint = anndata.read_h5ad(checkpoint_path)
-
-    if "X_stagate" not in checkpoint.obsm:
-        raise ValueError(
-            f"Checkpoint '{checkpoint_path}' does not contain `X_stagate`."
-        )
-
-    if len(checkpoint.obs_names) != len(adata.obs_names):
-        raise ValueError(
-            "STAGATE checkpoint spot count does not match the current filtered "
-            "AnnData."
-        )
-
-    if list(checkpoint.obs_names) != list(adata.obs_names):
-        raise ValueError(
-            "STAGATE checkpoint barcodes do not match the current filtered "
-            "AnnData."
-        )
-
-    if "sample" in checkpoint.obs.columns and "sample" in adata.obs.columns:
-        checkpoint_samples = checkpoint.obs["sample"].astype(str).tolist()
-        current_samples = adata.obs["sample"].astype(str).tolist()
-        if checkpoint_samples != current_samples:
-            raise ValueError(
-                "STAGATE checkpoint sample assignments do not match the "
-                "current filtered AnnData."
-            )
-
-    stored_metadata_json = checkpoint.uns.get("stagate_checkpoint_metadata_json")
-    if stored_metadata_json is None:
-        raise ValueError(
-            f"Checkpoint '{checkpoint_path}' is missing "
-            "`uns['stagate_checkpoint_metadata_json']`."
-        )
-    stored_metadata = json.loads(stored_metadata_json)
-    stored_metadata.setdefault("apply_harmony", False)
-    if stored_metadata != expected_metadata:
-        raise ValueError(
-            "STAGATE checkpoint preprocessing metadata does not match the "
-            "current workflow inputs."
-        )
-
-    adata.obsm["X_stagate"] = np.asarray(checkpoint.obsm["X_stagate"]).copy()
     return adata
 
 

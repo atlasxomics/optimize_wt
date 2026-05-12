@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from latch.types import LatchDir, LatchFile
+from latch.types import LatchDir
 
 # Shared AtlasXomics utilities — re-exported for `import wf.utils as utils`
 from atx_common import (  # noqa: F401
@@ -69,8 +69,6 @@ class WTOptSetInput:
     merge_small_clusters: int = 0
     compute_cluster_markers: bool = True
     marker_top_n: int = 50
-    stagate_embedding_checkpoint: Optional[LatchFile] = None
-    stagate_expected_metadata_json: Optional[str] = None
 
 
 @dataclass

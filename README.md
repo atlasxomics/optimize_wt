@@ -50,8 +50,6 @@ Global Parameters:
 - `project_name`: output folder name under `wt_opts`
 - `genome`: reference genome identifier
 - `clustering_backend`: choose `scanpy` or `stagate`
-- `stagate_embedding_checkpoint`: optional checkpoint to reuse a previously
-  trained STAGATE embedding
 
 Preprocessing Parameters:
 
@@ -98,9 +96,6 @@ Advanced Options:
 - iterates over `resolution x n_neighbors`
 - ignores `n_comps`
 
-If `stagate_embedding_checkpoint` is provided, the workflow validates it
-against the current preprocessing settings and skips retraining if it matches.
-
 ## Outputs
 
 Results are written to `latch:///wt_opts/<project_name>` and include:
@@ -111,8 +106,7 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - `figures/` with UMAP, spatial clustering, and spatial QC plots
 - one subdirectory per successful parameter set containing `combined.h5ad`,
   optional DEG CSVs, and an optional compact marker-gene heatmap
-- `intermediates/` containing the preprocessed AnnData and, for STAGATE runs,
-  the STAGATE embedding checkpoint
+- `intermediates/` containing the preprocessed AnnData
 
 ## Running The Workflow
 
@@ -132,5 +126,3 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - For multi-sample runs, sample IDs are preserved from the supplied `run_id`
   values and are used in downstream plotting and batch handling.
 - STAGATE runs benefit substantially from GPU availability.
-- Reusing a STAGATE checkpoint can make repeat runs much faster when only
-  downstream clustering parameters are changing.
