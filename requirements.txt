@@ -1,6 +1,7 @@
 anndata==0.10.8
 h5py==3.11.0
 matplotlib==3.8.3
+harmonypy==0.0.10
 pandas==2.1.1
 scanpy==1.10.2
 squidpy==1.6.0

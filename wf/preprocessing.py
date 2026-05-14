@@ -49,7 +49,7 @@ def add_clusters(
 
     if n_runs > 1:
         logging.info("Performing batch correction with Harmony...")
-        sc.external.pp.harmony_integrate(adata, batch="sample")
+        sc.external.pp.harmony_integrate(adata, key="sample")
         rep = "X_pca_harmony"
     else:
         rep = "X_pca"
