@@ -24,18 +24,10 @@ flow = [
         Params("project_name"),
         Params("genome"),
         Params("clustering_backend"),
-        Section(
-            "STAGATE Parameters",
-            Text(
-                "STAGATE-specific options only affect runs where the clustering "
-                "backend is set to `stagate`."
-            ),
-            Params("stagate_k_cutoff"),
-        )
     ),
     Section(
         "Preprocessing Parameters",
-        Section(
+        Spoiler(
             "Filtering",
             Params("min_genes"),
             Params("min_cells"),
@@ -43,11 +35,19 @@ flow = [
             Params("max_counts"),
             Params("max_pct_mt"),
         ),
-        Section(
+        Spoiler(
             "Select Variable Features",
             Params("normalize_target_sum"),
             Params("n_top_genes"),
             Params("hvg_flavor"),
+        ),
+        Spoiler(
+            "STAGATE Parameters",
+            Text(
+                "STAGATE-specific options only affect runs where the clustering "
+                "backend is set to `stagate`."
+            ),
+            Params("stagate_k_cutoff"),
         ),
     ),
     Section(
@@ -282,17 +282,17 @@ def wtOpt_workflow(
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
-    min_dist: float = 0.5,
-    spread: float = 1.0,
-    min_genes: int = 1,
-    min_cells: int = 1,
-    min_counts: int = 0,
+    min_dist: float = 0.05,
+    spread: float = 0.5,
+    min_genes: int = 30,
+    min_cells: int = 500,
+    min_counts: int = 50,
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
     compute_cluster_markers: bool = True,
     marker_top_n: int = 50,
-    normalize_target_sum: Optional[float] = None,
+    normalize_target_sum: Optional[float] = 4000.0,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -387,7 +387,7 @@ def wtOpt_workflow(
     - `spatial_coherence.csv` when spatial coherence can be computed
     - `figures/` with UMAP, spatial clustering, and spatial QC plots
     - one subdirectory per successful parameter set containing `combined.h5ad`
-    - `intermediates/` containing the preprocessed AnnData
+    - `_intermediates/` containing staged preprocessing data used between tasks
 
     ## Running The Workflow
 

@@ -1,7 +1,6 @@
 import itertools
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -29,21 +28,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+
 def _write_metadata_csv(output_path: Path, metadata: Dict[str, object]) -> None:
     pd.DataFrame([metadata]).to_csv(output_path, index=False)
-
-
-def _copytree_contents(src: Path, dst: Path) -> None:
-    if not src.exists():
-        return
-
-    dst.mkdir(parents=True, exist_ok=True)
-    for item in src.iterdir():
-        target = dst / item.name
-        if item.is_dir():
-            shutil.copytree(item, target, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, target)
 
 
 def _write_cluster_marker_outputs(
@@ -318,7 +305,6 @@ def train_stagate_task(
     out_dir = Path(f"/root/{project_name}_stagate_preprocess")
     out_dir.mkdir(parents=True, exist_ok=True)
     adata.write(out_dir / "preprocessed.h5ad")
-    _copytree_contents(preprocess_path / "figures", out_dir / "figures")
 
     return LatchDir(
         str(out_dir),
@@ -487,7 +473,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
             succeeded=True,
             output_dir=LatchDir(
                 str(out_dir),
-                f"latch:///wt_opts/{job.project_name}/_intermediates/_mapped_sets/{set_str}",
+                f"latch:///wt_opts/{job.project_name}/{set_str}",
             ),
         )
     except Exception as e:
@@ -553,9 +539,7 @@ def wtOpt_task(
 
     out_dir = Path(f"/root/{project_name}")
     figures_dir = out_dir / "figures"
-    intermediates_dir = out_dir / "intermediates"
     os.makedirs(figures_dir, exist_ok=True)
-    os.makedirs(intermediates_dir, exist_ok=True)
 
     metadata = {
         "project_name": project_name,
@@ -599,8 +583,6 @@ def wtOpt_task(
         )
 
     adata = ad.read_h5ad(preprocessed_h5ad)
-    shutil.copy2(preprocessed_h5ad, intermediates_dir / "preprocessed.h5ad")
-    _copytree_contents(preprocess_path / "figures", figures_dir)
 
     successful_results = [result for result in results if result.succeeded]
     adata_dict: Dict[str, ad.AnnData] = {}
@@ -610,24 +592,6 @@ def wtOpt_task(
         combined_path = Path(result.output_dir.local_path) / "combined.h5ad"
         if combined_path.exists():
             adata_dict[result.set_str] = ad.read_h5ad(combined_path)
-            set_dir = out_dir / result.set_str
-            os.makedirs(set_dir, exist_ok=True)
-            shutil.copy2(combined_path, set_dir / "combined.h5ad")
-            for marker_path in combined_path.parent.glob("deg_clusters*.csv"):
-                shutil.copy2(marker_path, set_dir / marker_path.name)
-            marker_figures_dir = combined_path.parent / "figures"
-            if marker_figures_dir.exists():
-                set_figures_dir = set_dir / "figures"
-                os.makedirs(set_figures_dir, exist_ok=True)
-                for pattern in (
-                    "cluster_marker_heatmap*.png",
-                    "deg_heatmap*.pdf",
-                ):
-                    for marker_heatmap in marker_figures_dir.glob(pattern):
-                        shutil.copy2(
-                            marker_heatmap,
-                            set_figures_dir / marker_heatmap.name,
-                        )
 
     if len(successful_results) == 0:
         warning = (

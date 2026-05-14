@@ -106,7 +106,7 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - `figures/` with UMAP, spatial clustering, and spatial QC plots
 - one subdirectory per successful parameter set containing `combined.h5ad`,
   optional DEG CSVs, and an optional compact marker-gene heatmap
-- `intermediates/` containing the preprocessed AnnData
+- `_intermediates/` containing staged preprocessing data used between tasks
 
 ## Running The Workflow
 
