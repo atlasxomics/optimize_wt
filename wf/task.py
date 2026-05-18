@@ -1,8 +1,6 @@
 import itertools
-import json
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -12,7 +10,7 @@ import scanpy as sc
 
 from latch import message
 from latch.resources.tasks import custom_task
-from latch.types import LatchDir, LatchFile
+from latch.types import LatchDir
 
 try:
     from latch.resources.tasks import g6e_2xlarge_task as stagate_gpu_task
@@ -31,55 +29,130 @@ logging.basicConfig(
 )
 
 
-def _build_stagate_checkpoint_metadata(
-    runs: List[utils.Run],
-    genome: str,
-    min_genes: int,
-    min_cells: int,
-    min_counts: int,
-    max_counts: int,
-    max_pct_mt: float,
-    normalize_target_sum: Optional[float],
-    n_top_genes: int,
-    hvg_flavor: str,
-    stagate_k_cutoff: int,
-) -> Dict[str, object]:
-    return {
-        "runs": [
-            {
-                "run_id": run.run_id,
-                "condition": utils.sanitize_condition(run.condition),
-            }
-            for run in runs
-        ],
-        "genome": genome,
-        "min_genes": min_genes,
-        "min_cells": min_cells,
-        "min_counts": min_counts,
-        "max_counts": max_counts,
-        "max_pct_mt": max_pct_mt,
-        "normalize_target_sum": normalize_target_sum,
-        "n_top_genes": n_top_genes,
-        "hvg_flavor": hvg_flavor,
-        "stagate_k_cutoff": stagate_k_cutoff,
-    }
-
-
 def _write_metadata_csv(output_path: Path, metadata: Dict[str, object]) -> None:
     pd.DataFrame([metadata]).to_csv(output_path, index=False)
 
 
-def _copytree_contents(src: Path, dst: Path) -> None:
-    if not src.exists():
+def _write_cluster_marker_outputs(
+    adata: ad.AnnData,
+    out_dir: Path,
+    marker_top_n: int,
+) -> None:
+    if marker_top_n < 1:
+        raise ValueError("marker_top_n must be at least 1.")
+    if "cluster" not in adata.obs:
+        raise KeyError("Cannot calculate cluster markers: missing obs['cluster'].")
+    if "log1p" not in adata.layers:
+        raise KeyError(
+            "Cannot calculate cluster markers: missing adata.layers['log1p']."
+        )
+
+    n_clusters = int(adata.obs["cluster"].nunique())
+    if n_clusters < 2:
+        logging.warning(
+            "Skipping cluster marker calculation because only %d cluster is present.",
+            n_clusters,
+        )
         return
 
-    dst.mkdir(parents=True, exist_ok=True)
-    for item in src.iterdir():
-        target = dst / item.name
-        if item.is_dir():
-            shutil.copytree(item, target, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, target)
+    genes = adata.var_names.astype(str)
+    genes_upper = genes.str.upper()
+    keep_genes = ~(
+        genes_upper.str.startswith("MT-")
+        | genes_upper.str.startswith("RPS")
+        | genes_upper.str.startswith("RPL")
+        | genes_upper.str.startswith("MTRNR")
+    )
+    marker_adata = adata[:, keep_genes].copy()
+    marker_adata.X = adata.layers["log1p"][:, keep_genes].copy()
+    marker_adata.obs["cluster"] = marker_adata.obs["cluster"].astype(str)
+    clusters = sorted(
+        marker_adata.obs["cluster"].unique(),
+        key=lambda cluster: (
+            0,
+            int(cluster),
+        ) if str(cluster).isdigit() else (1, str(cluster)),
+    )
+
+    sc.tl.rank_genes_groups(
+        marker_adata,
+        groupby="cluster",
+        method="wilcoxon",
+        use_raw=False,
+        pts=True,
+        key_added="cluster_markers",
+    )
+    deg_frames = []
+    top_frames = []
+    top_genes_per_cluster: Dict[str, List[str]] = {}
+    for cluster in clusters:
+        deg_df = sc.get.rank_genes_groups_df(
+            marker_adata,
+            group=cluster,
+            key="cluster_markers",
+            pval_cutoff=0.05,
+            log2fc_min=0.25,
+        )
+        deg_df.insert(0, "cluster", cluster)
+        deg_frames.append(deg_df)
+
+        top_df = sc.get.rank_genes_groups_df(
+            marker_adata,
+            group=cluster,
+            key="cluster_markers",
+            pval_cutoff=0.05,
+        ).head(marker_top_n)
+        top_df.insert(0, "cluster", cluster)
+        top_frames.append(top_df)
+        top_genes_per_cluster[cluster] = top_df["names"].astype(str).tolist()
+
+    if len(deg_frames) == 0:
+        raise ValueError("No clusters were available for DEG output.")
+
+    markers_df = pd.concat(deg_frames, ignore_index=True)
+    markers_df.to_csv(out_dir / "deg_clusters.csv", index=False)
+    top_markers_df = pd.concat(top_frames, ignore_index=True)
+    top_markers_df.to_csv(
+        out_dir / f"deg_clusters_top{marker_top_n}.csv",
+        index=False,
+    )
+    adata.uns["cluster_marker_degs"] = markers_df
+    adata.uns["cluster_marker_degs_params"] = {
+        "groupby": "cluster",
+        "method": "wilcoxon",
+        "expression_layer": "log1p",
+        "pval_cutoff": 0.05,
+        "log2fc_min": 0.25,
+        "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
+        "included_gene_count": int(keep_genes.sum()),
+        "excluded_gene_count": int((~keep_genes).sum()),
+    }
+
+    figures_dir = out_dir / "figures"
+    os.makedirs(figures_dir, exist_ok=True)
+    marker_heatmap = pl.plot_marker_heatmap(
+        marker_adata,
+        top_genes_per_cluster,
+        str(figures_dir / f"cluster_marker_heatmap_top{marker_top_n}.png"),
+        marker_top_n=marker_top_n,
+    )
+    pl.plot_marker_heatmap(
+        marker_adata,
+        top_genes_per_cluster,
+        str(figures_dir / f"deg_heatmap_top{marker_top_n}_compact_hires.pdf"),
+        marker_top_n=marker_top_n,
+    )
+    adata.uns["cluster_marker_heatmap"] = marker_heatmap
+    adata.uns["cluster_marker_heatmap_params"] = {
+        "included_gene_count": int(keep_genes.sum()),
+        "excluded_gene_count": int((~keep_genes).sum()),
+        "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
+        "expression_layer": "log1p",
+        "pval_cutoff": 0.05,
+        "log2fc_min": 0.25,
+        "marker_top_n": marker_top_n,
+        "values": "column-wise z-score of mean log1p expression, clipped to [-3, 3]",
+    }
 
 
 @custom_task(cpu=4, memory=128, storage_gib=1000)
@@ -201,20 +274,10 @@ def preprocess_wt_task(
 def train_stagate_task(
     preprocessed_dir: LatchDir,
     project_name: str,
-    runs: List[utils.Run],
-    genome: utils.Genome,
     clustering_backend: str = "scanpy",
-    min_genes: int = 0,
-    min_cells: int = 0,
-    min_counts: int = 0,
-    max_counts: int = 0,
-    max_pct_mt: float = 100.0,
-    normalize_target_sum: Optional[float] = None,
-    n_top_genes: int = 4000,
-    hvg_flavor: str = "seurat",
     stagate_k_cutoff: int = 6,
-    stagate_embedding_checkpoint: Optional[LatchFile] = None,
-) -> Optional[LatchFile]:
+    apply_harmony: bool = True,
+) -> LatchDir:
     if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
         raise ValueError(
             f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
@@ -226,14 +289,7 @@ def train_stagate_task(
             "Skipping STAGATE training because clustering_backend=%s.",
             clustering_backend,
         )
-        return stagate_embedding_checkpoint
-
-    if stagate_embedding_checkpoint is not None:
-        logging.info(
-            "Reusing provided STAGATE embedding checkpoint from %s.",
-            stagate_embedding_checkpoint.remote_path,
-        )
-        return stagate_embedding_checkpoint
+        return preprocessed_dir
 
     pp.require_stagate_module()
 
@@ -242,35 +298,22 @@ def train_stagate_task(
     adata = pp.train_stagate_embedding(
         adata,
         k_cutoff=stagate_k_cutoff,
+        apply_harmony=apply_harmony,
         random_state=RANDOM_STATE,
     )
 
-    metadata = _build_stagate_checkpoint_metadata(
-        runs=runs,
-        genome=genome.value,
-        min_genes=min_genes,
-        min_cells=min_cells,
-        min_counts=min_counts,
-        max_counts=max_counts,
-        max_pct_mt=max_pct_mt,
-        normalize_target_sum=normalize_target_sum,
-        n_top_genes=n_top_genes,
-        hvg_flavor=hvg_flavor,
-        stagate_k_cutoff=stagate_k_cutoff,
-    )
+    out_dir = Path(f"/root/{project_name}_stagate_preprocess")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    adata.write(out_dir / "preprocessed.h5ad")
 
-    out_path = Path(f"/root/{project_name}_stagate_embedding_checkpoint.h5ad")
-    pp.save_stagate_embedding_checkpoint(adata, out_path, metadata=metadata)
-    return LatchFile(
-        str(out_path),
-        f"latch:///wt_opts/{project_name}/_intermediates/stagate_embedding_checkpoint.h5ad",
+    return LatchDir(
+        str(out_dir),
+        f"latch:///wt_opts/{project_name}/_intermediates/stagate_preprocess",
     )
 
 
 @custom_task(cpu=2, memory=4, storage_gib=50)
 def build_wt_opt_jobs_task(
-    runs: List[utils.Run],
-    genome: utils.Genome,
     project_name: str,
     preprocess_dir: LatchDir,
     clustering_backend: str,
@@ -281,44 +324,20 @@ def build_wt_opt_jobs_task(
     spread: float,
     apply_harmony: bool = True,
     merge_small_clusters: Optional[int] = 200,
-    min_genes: int = 0,
-    min_cells: int = 0,
-    min_counts: int = 0,
-    max_counts: int = 0,
-    max_pct_mt: float = 100.0,
-    normalize_target_sum: Optional[float] = None,
-    n_top_genes: int = 4000,
-    hvg_flavor: str = "seurat",
-    stagate_k_cutoff: int = 6,
-    stagate_embedding_checkpoint: Optional[LatchFile] = None,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
 ) -> List[utils.WTOptSetInput]:
     if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
         raise ValueError(
             f"Invalid clustering_backend '{clustering_backend}'. Expected one of "
             f"{pp.ALLOWED_CLUSTERING_BACKENDS}."
         )
+    if marker_top_n < 1:
+        raise ValueError("marker_top_n must be at least 1.")
 
     merge_small_clusters_threshold = (
         0 if merge_small_clusters is None else merge_small_clusters
     )
-    stagate_expected_metadata_json = None
-    if clustering_backend == "stagate":
-        stagate_expected_metadata_json = json.dumps(
-            _build_stagate_checkpoint_metadata(
-                runs=runs,
-                genome=genome.value,
-                min_genes=min_genes,
-                min_cells=min_cells,
-                min_counts=min_counts,
-                max_counts=max_counts,
-                max_pct_mt=max_pct_mt,
-                normalize_target_sum=normalize_target_sum,
-                n_top_genes=n_top_genes,
-                hvg_flavor=hvg_flavor,
-                stagate_k_cutoff=stagate_k_cutoff,
-            ),
-            sort_keys=True,
-        )
 
     jobs: List[utils.WTOptSetInput] = []
     if clustering_backend == "scanpy":
@@ -338,7 +357,8 @@ def build_wt_opt_jobs_task(
                     preprocess_dir=preprocess_dir,
                     apply_harmony=apply_harmony,
                     merge_small_clusters=merge_small_clusters_threshold,
-                    stagate_expected_metadata_json=stagate_expected_metadata_json,
+                    compute_cluster_markers=compute_cluster_markers,
+                    marker_top_n=marker_top_n,
                 )
             )
         return jobs
@@ -358,8 +378,8 @@ def build_wt_opt_jobs_task(
                 preprocess_dir=preprocess_dir,
                 apply_harmony=apply_harmony,
                 merge_small_clusters=merge_small_clusters_threshold,
-                stagate_embedding_checkpoint=stagate_embedding_checkpoint,
-                stagate_expected_metadata_json=stagate_expected_metadata_json,
+                compute_cluster_markers=compute_cluster_markers,
+                marker_top_n=marker_top_n,
             )
         )
 
@@ -416,25 +436,6 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 job.min_dist,
                 job.spread,
             )
-            if job.stagate_embedding_checkpoint is None:
-                raise ValueError(
-                    "STAGATE optimization set requires an embedding checkpoint."
-                )
-            expected_metadata = (
-                json.loads(job.stagate_expected_metadata_json)
-                if job.stagate_expected_metadata_json is not None
-                else None
-            )
-            if expected_metadata is None:
-                raise ValueError(
-                    "STAGATE optimization set is missing checkpoint validation "
-                    "metadata."
-                )
-            adata = pp.load_stagate_embedding_checkpoint(
-                adata,
-                job.stagate_embedding_checkpoint.local_path,
-                expected_metadata=expected_metadata,
-            )
             adata = pp.add_stagate_clusters(
                 adata,
                 job.resolution,
@@ -444,6 +445,20 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 merge_small_clusters=job.merge_small_clusters,
                 random_state=RANDOM_STATE,
             )
+
+        if job.compute_cluster_markers:
+            try:
+                _write_cluster_marker_outputs(
+                    adata,
+                    out_dir,
+                    marker_top_n=job.marker_top_n,
+                )
+            except Exception as e:
+                logging.warning(
+                    "Cluster marker output failed for %s: %s",
+                    set_str,
+                    e,
+                )
 
         adata.write(out_dir / "combined.h5ad")
         return utils.WTOptSetResult(
@@ -458,7 +473,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
             succeeded=True,
             output_dir=LatchDir(
                 str(out_dir),
-                f"latch:///wt_opts/{job.project_name}/_intermediates/_mapped_sets/{set_str}",
+                f"latch:///wt_opts/{job.project_name}/{set_str}",
             ),
         )
     except Exception as e:
@@ -500,8 +515,9 @@ def wtOpt_task(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
     normalize_target_sum: Optional[float] = None,
-    stagate_embedding_checkpoint: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> LatchDir:
@@ -523,9 +539,7 @@ def wtOpt_task(
 
     out_dir = Path(f"/root/{project_name}")
     figures_dir = out_dir / "figures"
-    intermediates_dir = out_dir / "intermediates"
     os.makedirs(figures_dir, exist_ok=True)
-    os.makedirs(intermediates_dir, exist_ok=True)
 
     metadata = {
         "project_name": project_name,
@@ -546,6 +560,8 @@ def wtOpt_task(
         "max_counts": max_counts,
         "max_pct_mt": max_pct_mt,
         "merge_small_clusters": merge_small_clusters,
+        "compute_cluster_markers": compute_cluster_markers,
+        "marker_top_n": marker_top_n,
         "normalize_target_sum": normalize_target_sum,
         "pt_size": pt_size,
         "qc_pt_size": qc_pt_size,
@@ -567,14 +583,6 @@ def wtOpt_task(
         )
 
     adata = ad.read_h5ad(preprocessed_h5ad)
-    shutil.copy2(preprocessed_h5ad, intermediates_dir / "preprocessed.h5ad")
-    _copytree_contents(preprocess_path / "figures", figures_dir)
-
-    if stagate_embedding_checkpoint is not None:
-        shutil.copy2(
-            Path(stagate_embedding_checkpoint.local_path),
-            intermediates_dir / "stagate_embedding_checkpoint.h5ad",
-        )
 
     successful_results = [result for result in results if result.succeeded]
     adata_dict: Dict[str, ad.AnnData] = {}
@@ -584,9 +592,6 @@ def wtOpt_task(
         combined_path = Path(result.output_dir.local_path) / "combined.h5ad"
         if combined_path.exists():
             adata_dict[result.set_str] = ad.read_h5ad(combined_path)
-            set_dir = out_dir / result.set_str
-            os.makedirs(set_dir, exist_ok=True)
-            shutil.copy2(combined_path, set_dir / "combined.h5ad")
 
     if len(successful_results) == 0:
         warning = (

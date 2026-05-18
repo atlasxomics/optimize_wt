@@ -7,7 +7,7 @@ import matplotlib.image as mpimg
 import numpy as np
 import squidpy as sq
 
-from typing import Any, Dict, List, Union
+from typing import List, Union
 from pathlib import Path
 
 import pandas as pd
@@ -61,6 +61,14 @@ ALLOWED_CLUSTERING_BACKENDS = (
     "scanpy",
     "stagate",
 )
+EXPECTED_GEX_RAW_PARENT_SUFFIX = "_STAR_outputsGeneFull"
+
+
+GEX_FILE_GROUPS = {
+    "matrix file": MTX_CANDIDATES,
+    "gene table": GENE_TABLE_CANDIDATES,
+    "barcode file": BARCODE_CANDIDATES,
+}
 
 
 def _resolve_local_file(
@@ -74,6 +82,88 @@ def _resolve_local_file(
 
     raise FileNotFoundError(
         f"Could not find any of {candidates} in '{directory}'."
+    )
+
+
+def _has_local_candidate(directory: Path, candidates: List[str]) -> bool:
+    return any((directory / candidate).exists() for candidate in candidates)
+
+
+def _missing_gex_file_groups(gex_dir: Path) -> List[str]:
+    return [
+        label for label, candidates in GEX_FILE_GROUPS.items()
+        if not _has_local_candidate(gex_dir, candidates)
+    ]
+
+
+def _matches_expected_gex_path(path: str) -> bool:
+    parts = path.rstrip("/").split("/")
+    if len(parts) < 2:
+        return False
+
+    return (
+        parts[-1] == "raw"
+        and parts[-2].endswith(EXPECTED_GEX_RAW_PARENT_SUFFIX)
+    )
+
+
+def _find_nested_gex_raw_dirs(directory: Path) -> List[str]:
+    if not directory.exists():
+        return []
+
+    raw_dirs = [
+        path for path in directory.rglob("raw")
+        if path.is_dir() and path.parent.name.endswith(EXPECTED_GEX_RAW_PARENT_SUFFIX)
+    ]
+
+    return [
+        str(path.relative_to(directory)) for path in sorted(raw_dirs)[:5]
+    ]
+
+
+def _validate_gex_dir(run: Run) -> None:
+    gex_dir = Path(run.gex_dir.local_path)
+    missing_groups = _missing_gex_file_groups(gex_dir)
+    remote_path = run.gex_dir.remote_path.rstrip("/")
+    matches_expected_path = _matches_expected_gex_path(remote_path)
+
+    if len(missing_groups) == 0:
+        return
+
+    if matches_expected_path:
+        raise FileNotFoundError(
+            f"Invalid gex_dir for run '{run.run_id}': selected "
+            f"'{remote_path}', which matches the expected STAR GeneFull raw "
+            f"path pattern, but it is missing required files: "
+            f"{', '.join(missing_groups)}. Expected this directory to directly "
+            f"contain one of {MTX_CANDIDATES}, one of {GENE_TABLE_CANDIDATES}, "
+            f"and one of {BARCODE_CANDIDATES}."
+        )
+
+    nested_raw_dirs = _find_nested_gex_raw_dirs(gex_dir)
+    nested_hint = ""
+    if len(nested_raw_dirs) > 0:
+        nested_dir_label = (
+            "directory" if len(nested_raw_dirs) == 1 else "directories"
+        )
+        nested_hint = (
+            f" Found possible nested raw {nested_dir_label} under the "
+            f"selected folder: {nested_raw_dirs}."
+        )
+
+    raise ValueError(
+        f"Invalid gex_dir for run '{run.run_id}': selected '{remote_path}', "
+        f"but this workflow expects the RNA-seq QC STAR GeneFull raw output "
+        f"directory. The path should end with "
+        f"'*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw' and directly contain "
+        f"one of {MTX_CANDIDATES}, one of {GENE_TABLE_CANDIDATES}, and one of "
+        f"{BARCODE_CANDIDATES}. The selected directory is missing: "
+        f"{', '.join(missing_groups)}. Hints: choose the nested "
+        f"'*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw' directory inside the "
+        f"RNA-seq QC output, not the top-level '*_star' output folder. "
+        f"For a selected parent folder, the expected target usually looks like "
+        f"'{remote_path}/*{EXPECTED_GEX_RAW_PARENT_SUFFIX}/raw'."
+        f"{nested_hint}"
     )
 
 
@@ -250,6 +340,7 @@ def _load_spatial_assets(run: Run) -> dict:
 
 def _load_run_adata(run: Run) -> anndata.AnnData:
     gex_dir = Path(run.gex_dir.local_path)
+    _validate_gex_dir(run)
     gene_table = _read_gene_table(gex_dir)
     barcodes = _read_barcodes(gex_dir)
     matrix = _read_count_matrix(
@@ -464,7 +555,7 @@ def add_clusters(
 
     if n_runs > 1 and apply_harmony:
         logging.info("Performing batch correction with Harmony...")
-        sc.external.pp.harmony_integrate(adata, batch="sample")
+        sc.external.pp.harmony_integrate(adata, key="sample")
         rep = "X_pca_harmony"
     else:
         rep = "X_pca"
@@ -528,6 +619,7 @@ def require_stagate_module():
 def train_stagate_embedding(
     adata: anndata.AnnData,
     k_cutoff: int = 6,
+    apply_harmony: bool = True,
     random_state: int = 0,
 ) -> anndata.AnnData:
     """Train STAGATE once on HVG log-normalized expression and store embedding."""
@@ -586,91 +678,26 @@ def train_stagate_embedding(
 
     adata_st = STAGATE_pyG.train_STAGATE(adata_st, **train_kwargs)
     adata.obsm["X_stagate"] = adata_st.obsm["STAGATE"].copy()
+    adata.obsm["X_stagate_raw"] = adata.obsm["X_stagate"].copy()
 
-    return adata
-
-
-def save_stagate_embedding_checkpoint(
-    adata: anndata.AnnData,
-    output_path: Union[Path, str],
-    metadata: Dict[str, Any],
-) -> Path:
-    """Write a minimal checkpoint containing the trained STAGATE embedding."""
-
-    if "X_stagate" not in adata.obsm:
-        raise ValueError(
-            "Cannot save STAGATE checkpoint without `adata.obsm['X_stagate']`."
+    n_runs = 1
+    try:
+        n_runs = len(adata.obs["sample"].unique())
+    except KeyError as e:
+        logging.warning(
+            f"Exception {e}: Please add metadata to combined AnnData."
         )
 
-    obs = pd.DataFrame(index=adata.obs_names.copy())
-    if "sample" in adata.obs.columns:
-        obs["sample"] = adata.obs["sample"].astype(str).values
-
-    checkpoint = anndata.AnnData(
-        X=sp.csr_matrix((adata.n_obs, 0), dtype=np.float32),
-        obs=obs,
-        var=pd.DataFrame(index=pd.Index([], dtype=str)),
-    )
-    checkpoint.obsm["X_stagate"] = np.asarray(adata.obsm["X_stagate"]).copy()
-    checkpoint.uns["stagate_checkpoint_metadata_json"] = json.dumps(
-        metadata,
-        sort_keys=True,
-    )
-
-    output_path = Path(output_path)
-    checkpoint.write(output_path)
-    return output_path
-
-
-def load_stagate_embedding_checkpoint(
-    adata: anndata.AnnData,
-    checkpoint_path: Union[Path, str],
-    expected_metadata: Dict[str, Any],
-) -> anndata.AnnData:
-    """Load and validate a STAGATE embedding checkpoint."""
-
-    checkpoint = anndata.read_h5ad(checkpoint_path)
-
-    if "X_stagate" not in checkpoint.obsm:
-        raise ValueError(
-            f"Checkpoint '{checkpoint_path}' does not contain `X_stagate`."
+    if n_runs > 1 and apply_harmony:
+        logging.info("Performing Harmony batch correction on STAGATE embedding...")
+        sc.external.pp.harmony_integrate(
+            adata,
+            key="sample",
+            basis="X_stagate",
+            adjusted_basis="X_stagate_harmony",
         )
+        adata.obsm["X_stagate"] = adata.obsm["X_stagate_harmony"].copy()
 
-    if len(checkpoint.obs_names) != len(adata.obs_names):
-        raise ValueError(
-            "STAGATE checkpoint spot count does not match the current filtered "
-            "AnnData."
-        )
-
-    if list(checkpoint.obs_names) != list(adata.obs_names):
-        raise ValueError(
-            "STAGATE checkpoint barcodes do not match the current filtered "
-            "AnnData."
-        )
-
-    if "sample" in checkpoint.obs.columns and "sample" in adata.obs.columns:
-        checkpoint_samples = checkpoint.obs["sample"].astype(str).tolist()
-        current_samples = adata.obs["sample"].astype(str).tolist()
-        if checkpoint_samples != current_samples:
-            raise ValueError(
-                "STAGATE checkpoint sample assignments do not match the "
-                "current filtered AnnData."
-            )
-
-    stored_metadata_json = checkpoint.uns.get("stagate_checkpoint_metadata_json")
-    if stored_metadata_json is None:
-        raise ValueError(
-            f"Checkpoint '{checkpoint_path}' is missing "
-            "`uns['stagate_checkpoint_metadata_json']`."
-        )
-    stored_metadata = json.loads(stored_metadata_json)
-    if stored_metadata != expected_metadata:
-        raise ValueError(
-            "STAGATE checkpoint preprocessing metadata does not match the "
-            "current workflow inputs."
-        )
-
-    adata.obsm["X_stagate"] = np.asarray(checkpoint.obsm["X_stagate"]).copy()
     return adata
 
 

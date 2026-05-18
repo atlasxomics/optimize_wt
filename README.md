@@ -50,8 +50,6 @@ Global Parameters:
 - `project_name`: output folder name under `wt_opts`
 - `genome`: reference genome identifier
 - `clustering_backend`: choose `scanpy` or `stagate`
-- `stagate_embedding_checkpoint`: optional checkpoint to reuse a previously
-  trained STAGATE embedding
 
 Preprocessing Parameters:
 
@@ -73,8 +71,12 @@ Iterative Parameters:
 
 Advanced Options:
 
-- `apply_harmony`: optional batch correction for multi-sample Scanpy runs
+- `apply_harmony`: optional batch correction for multi-sample runs
 - `merge_small_clusters`: merge undersized clusters after Leiden
+- `compute_cluster_markers`: rank marker genes for each cluster in each
+  parameter set
+- `marker_top_n`: number of top marker genes per cluster to include in marker
+  summaries and heatmaps
 - `stagate_k_cutoff`: KNN graph size used when training STAGATE
 - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
 
@@ -89,12 +91,10 @@ Advanced Options:
 `stagate` backend:
 
 - trains STAGATE once, optionally on GPU
+- optionally applies Harmony to the STAGATE embedding for multi-sample runs
 - reuses the learned embedding across mapped parameter-set tasks
 - iterates over `resolution x n_neighbors`
-- ignores `n_comps` and `apply_harmony`
-
-If `stagate_embedding_checkpoint` is provided, the workflow validates it
-against the current preprocessing settings and skips retraining if it matches.
+- ignores `n_comps`
 
 ## Outputs
 
@@ -104,9 +104,9 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - `medians.csv`
 - `spatial_coherence.csv` when spatial coherence can be computed
 - `figures/` with UMAP, spatial clustering, and spatial QC plots
-- one subdirectory per successful parameter set containing `combined.h5ad`
-- `intermediates/` containing the preprocessed AnnData and, for STAGATE runs,
-  the STAGATE embedding checkpoint
+- one subdirectory per successful parameter set containing `combined.h5ad`,
+  optional DEG CSVs, and an optional compact marker-gene heatmap
+- `_intermediates/` containing staged preprocessing data used between tasks
 
 ## Running The Workflow
 
@@ -126,5 +126,3 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - For multi-sample runs, sample IDs are preserved from the supplied `run_id`
   values and are used in downstream plotting and batch handling.
 - STAGATE runs benefit substantially from GPU availability.
-- Reusing a STAGATE checkpoint can make repeat runs much faster when only
-  downstream clustering parameters are changing.

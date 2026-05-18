@@ -2,7 +2,6 @@ from typing import List, Optional
 
 from latch import map_task
 from latch.resources.workflow import workflow
-from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule, Params, Section, Spoiler, Text)
 
@@ -25,19 +24,10 @@ flow = [
         Params("project_name"),
         Params("genome"),
         Params("clustering_backend"),
-        Section(
-            "STAGATE Parameters",
-            Text(
-                "STAGATE-specific options only affect runs where the clustering "
-                "backend is set to `stagate`."
-            ),
-            Params("stagate_embedding_checkpoint"),
-            Params("stagate_k_cutoff"),
-        )
     ),
     Section(
         "Preprocessing Parameters",
-        Section(
+        Spoiler(
             "Filtering",
             Params("min_genes"),
             Params("min_cells"),
@@ -45,11 +35,19 @@ flow = [
             Params("max_counts"),
             Params("max_pct_mt"),
         ),
-        Section(
+        Spoiler(
             "Select Variable Features",
             Params("normalize_target_sum"),
             Params("n_top_genes"),
             Params("hvg_flavor"),
+        ),
+        Spoiler(
+            "STAGATE Parameters",
+            Text(
+                "STAGATE-specific options only affect runs where the clustering "
+                "backend is set to `stagate`."
+            ),
+            Params("stagate_k_cutoff"),
         ),
     ),
     Section(
@@ -62,6 +60,11 @@ flow = [
         "Advanced Options",
         Params("merge_small_clusters"),
         Params("apply_harmony"),
+        Section(
+            "Cluster Markers",
+            Params("compute_cluster_markers"),
+            Params("marker_top_n"),
+        ),
         Section(
             "UMAP Display",
             Params("min_dist"),
@@ -168,9 +171,11 @@ metadata = LatchMetadata(
             ]
         ),
         "apply_harmony": LatchParameter(
-            display_name="apply harmony integration (scanpy only)",
+            display_name="apply harmony integration",
             description="Apply Harmony batch correction across samples before \
-                neighbor graph construction. Ignored for single-sample runs.",
+                neighbor graph construction. For `scanpy`, Harmony is applied \
+                to the PCA embedding. For `stagate`, Harmony is applied to the \
+                STAGATE embedding. Ignored for single-sample runs.",
             batch_table_column=True
         ),
         "min_dist": LatchParameter(
@@ -226,17 +231,23 @@ metadata = LatchMetadata(
                 its nearest cluster in embedding space. Set to 0 to disable.",
             batch_table_column=True
         ),
+        "compute_cluster_markers": LatchParameter(
+            display_name="compute cluster marker genes",
+            description="Rank marker genes for each cluster in every \
+                optimization parameter set and write marker tables plus a \
+                heatmap.",
+            batch_table_column=True
+        ),
+        "marker_top_n": LatchParameter(
+            display_name="marker genes per cluster",
+            description="Number of top marker genes per cluster to include in \
+                marker summary tables and heatmaps.",
+            batch_table_column=True
+        ),
         "normalize_target_sum": LatchParameter(
             display_name="normalize target sum",
             description="Optional target sum for `scanpy.pp.normalize_total`. \
                 Leave unset to use Scanpy's default behavior.",
-            batch_table_column=True
-        ),
-        "stagate_embedding_checkpoint": LatchParameter(
-            display_name="STAGATE embedding checkpoint",
-            description="Optional checkpoint file created by a previous \
-                STAGATE workflow run. If provided, the workflow validates and \
-                reuses `X_stagate` to skip STAGATE training.",
             batch_table_column=True
         ),
         "pt_size": LatchParameter(
@@ -271,16 +282,17 @@ def wtOpt_workflow(
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
-    min_dist: float = 0.5,
-    spread: float = 1.0,
-    min_genes: int = 1,
-    min_cells: int = 1,
-    min_counts: int = 0,
+    min_dist: float = 0.05,
+    spread: float = 0.5,
+    min_genes: int = 30,
+    min_cells: int = 500,
+    min_counts: int = 50,
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     merge_small_clusters: Optional[int] = 200,
-    normalize_target_sum: Optional[float] = None,
-    stagate_embedding_checkpoint: Optional[LatchFile] = None,
+    compute_cluster_markers: bool = True,
+    marker_top_n: int = 50,
+    normalize_target_sum: Optional[float] = 4000.0,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -327,8 +339,6 @@ def wtOpt_workflow(
     - `project_name`: output folder name under `wt_opts`
     - `genome`: reference genome identifier
     - `clustering_backend`: choose `scanpy` or `stagate`
-    - `stagate_embedding_checkpoint`: optional checkpoint to reuse a previously
-      trained STAGATE embedding
 
     Preprocessing Parameters:
     - `n_top_genes`: number of highly variable features
@@ -347,8 +357,10 @@ def wtOpt_workflow(
     - `spread`
 
     Advanced Options:
-    - `apply_harmony`: optional batch correction for multi-sample Scanpy runs
+    - `apply_harmony`: optional batch correction for multi-sample runs
     - `merge_small_clusters`: merge undersized clusters after Leiden
+    - `compute_cluster_markers`: rank marker genes for each cluster
+    - `marker_top_n`: top marker genes per cluster for marker tables/heatmaps
     - `stagate_k_cutoff`: KNN graph size used when training STAGATE
     - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
 
@@ -361,13 +373,10 @@ def wtOpt_workflow(
 
     `stagate` backend:
     - trains STAGATE once, optionally on GPU
+    - optionally applies Harmony to the STAGATE embedding for multi-sample runs
     - reuses the learned embedding across mapped parameter-set tasks
     - iterates over `resolution x n_neighbors`
-    - ignores `n_comps` and `apply_harmony`
-
-    If `stagate_embedding_checkpoint` is provided, the workflow validates it
-    against the current preprocessing settings and skips retraining if it
-    matches.
+    - ignores `n_comps`
 
     ## Outputs
 
@@ -378,8 +387,7 @@ def wtOpt_workflow(
     - `spatial_coherence.csv` when spatial coherence can be computed
     - `figures/` with UMAP, spatial clustering, and spatial QC plots
     - one subdirectory per successful parameter set containing `combined.h5ad`
-    - `intermediates/` containing the preprocessed AnnData and, for STAGATE
-      runs, the STAGATE embedding checkpoint
+    - `_intermediates/` containing staged preprocessing data used between tasks
 
     ## Running The Workflow
 
@@ -399,8 +407,6 @@ def wtOpt_workflow(
     - For multi-sample runs, sample IDs are preserved from the supplied
       `run_id` values and are used in downstream plotting and batch handling.
     - STAGATE runs benefit substantially from GPU availability.
-    - Reusing a STAGATE checkpoint can make repeat runs faster when only
-      downstream clustering parameters are changing.
     """
     preprocess_dir = preprocess_wt_task(
         runs=runs,
@@ -416,29 +422,17 @@ def wtOpt_workflow(
         normalize_target_sum=normalize_target_sum,
     )
 
-    stagate_embedding_checkpoint = train_stagate_task(
+    clustering_preprocess_dir = train_stagate_task(
         preprocessed_dir=preprocess_dir,
         project_name=project_name,
         clustering_backend=clustering_backend,
-        runs=runs,
-        genome=genome,
-        min_genes=min_genes,
-        min_cells=min_cells,
-        min_counts=min_counts,
-        max_counts=max_counts,
-        max_pct_mt=max_pct_mt,
-        normalize_target_sum=normalize_target_sum,
-        n_top_genes=n_top_genes,
-        hvg_flavor=hvg_flavor,
         stagate_k_cutoff=stagate_k_cutoff,
-        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
+        apply_harmony=apply_harmony,
     )
 
     opt_jobs = build_wt_opt_jobs_task(
-        runs=runs,
-        genome=genome,
         project_name=project_name,
-        preprocess_dir=preprocess_dir,
+        preprocess_dir=clustering_preprocess_dir,
         clustering_backend=clustering_backend,
         resolution=resolution,
         n_comps=n_comps,
@@ -447,21 +441,13 @@ def wtOpt_workflow(
         spread=spread,
         apply_harmony=apply_harmony,
         merge_small_clusters=merge_small_clusters,
-        min_genes=min_genes,
-        min_cells=min_cells,
-        min_counts=min_counts,
-        max_counts=max_counts,
-        max_pct_mt=max_pct_mt,
-        normalize_target_sum=normalize_target_sum,
-        n_top_genes=n_top_genes,
-        hvg_flavor=hvg_flavor,
-        stagate_k_cutoff=stagate_k_cutoff,
-        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
+        compute_cluster_markers=compute_cluster_markers,
+        marker_top_n=marker_top_n,
     )
     mapped_results = map_task(opt_set_task)(job=opt_jobs)
 
     results = wtOpt_task(
-        preprocess_dir=preprocess_dir,
+        preprocess_dir=clustering_preprocess_dir,
         runs=runs,
         genome=genome,
         project_name=project_name,
@@ -480,8 +466,9 @@ def wtOpt_workflow(
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
         merge_small_clusters=merge_small_clusters,
+        compute_cluster_markers=compute_cluster_markers,
+        marker_top_n=marker_top_n,
         normalize_target_sum=normalize_target_sum,
-        stagate_embedding_checkpoint=stagate_embedding_checkpoint,
         min_dist=min_dist,
         spread=spread,
         pt_size=pt_size,
