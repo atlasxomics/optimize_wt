@@ -385,7 +385,9 @@ def wtOpt_workflow(
     - `metadata.csv`
     - `medians.csv`
     - `spatial_coherence.csv` when spatial coherence can be computed
-    - `figures/` with UMAP, spatial clustering, and spatial QC plots
+    - `all_umaps.html` with cluster-colored UMAPs, plus sample and condition
+      coloring when more than one sample or condition is supplied
+    - `figures/` with UMAP, spatial clustering, and spatial QC plot images
     - one subdirectory per successful parameter set containing `combined.h5ad`
     - `_intermediates/` containing staged preprocessing data used between tasks
 

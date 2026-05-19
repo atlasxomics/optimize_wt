@@ -103,7 +103,9 @@ Results are written to `latch:///wt_opts/<project_name>` and include:
 - `metadata.csv`
 - `medians.csv`
 - `spatial_coherence.csv` when spatial coherence can be computed
-- `figures/` with UMAP, spatial clustering, and spatial QC plots
+- `all_umaps.html` with cluster-colored UMAPs, plus sample and condition
+  coloring when more than one sample or condition is supplied
+- `figures/` with UMAP, spatial clustering, and spatial QC plot images
 - one subdirectory per successful parameter set containing `combined.h5ad`,
   optional DEG CSVs, and an optional compact marker-gene heatmap
 - `_intermediates/` containing staged preprocessing data used between tasks

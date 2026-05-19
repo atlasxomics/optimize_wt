@@ -607,10 +607,21 @@ def wtOpt_task(
             },
         )
     else:
+        condition_count = len({
+            utils.sanitize_condition(run.condition)
+            for run in runs
+        })
+        umap_color_keys = ["cluster"]
+        if len(set(samples)) > 1:
+            umap_color_keys.append("sample")
+        if condition_count > 1:
+            umap_color_keys.append("condition")
+
         pl.combine_umaps(
             adata_dict,
             str(figures_dir / "all_umaps.png"),
             html_output_path=str(out_dir / "all_umaps.html"),
+            color_keys=umap_color_keys,
         )
 
         pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]

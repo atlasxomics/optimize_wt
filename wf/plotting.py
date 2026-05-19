@@ -203,7 +203,8 @@ def _write_html_gallery(
 def combine_umaps(
     adata_dict: dict[str, anndata.AnnData],
     output_path: str,
-    html_output_path: Optional[str] = None
+    html_output_path: Optional[str] = None,
+    color_keys: Optional[List[str]] = None,
 ) -> None:
     """Create a figure with UMAPs colored by categorical metadata.
 
@@ -212,40 +213,89 @@ def combine_umaps(
     """
 
     sets = list(adata_dict.keys())
+    color_keys = color_keys if color_keys is not None else ["cluster"]
+    color_keys = [
+        color_key
+        for color_key in color_keys
+        if any(color_key in adata.obs.columns for adata in adata_dict.values())
+    ]
+    if len(color_keys) == 0:
+        color_keys = ["cluster"]
+
     page_captions: List[str] = []
     save_page, close, is_pdf, image_paths = _get_page_saver(output_path)
     try:
-        for i in range(0, len(sets), 4):
+        if len(color_keys) == 1:
+            color_key = color_keys[0]
+            for i in range(0, len(sets), 4):
 
-            batch = sets[i:i + 4]
-            fig, axs = plt.subplots(2, 2, figsize=(12, 12))
-            axs = axs.flatten()
+                batch = sets[i:i + 4]
+                fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+                axs = axs.flatten()
 
-            for j, s in enumerate(batch):
-                sc.pl.umap(
-                    adata_dict[s],
-                    s=10,
-                    color="cluster",
-                    ax=axs[j],
-                    show=False,
-                    title=s
+                for j, s in enumerate(batch):
+                    sc.pl.umap(
+                        adata_dict[s],
+                        s=10,
+                        color=color_key,
+                        ax=axs[j],
+                        show=False,
+                        title=s,
+                    )
+
+                # Ensure empty plots are not displayed
+                for k in range(len(axs)):
+                    axs[k].axis("off")
+
+                plt.tight_layout()
+
+                page_captions.append("Sets: " + ", ".join(batch))
+                save_page(fig)
+                plt.close(fig)
+        else:
+            sets_per_page = max(1, 6 // len(color_keys))
+            for i in range(0, len(sets), sets_per_page):
+                batch = sets[i:i + sets_per_page]
+                fig, axs = plt.subplots(
+                    len(batch),
+                    len(color_keys),
+                    figsize=(5 * len(color_keys), 4.5 * len(batch)),
+                    squeeze=False,
                 )
 
-            # Ensure empty plots are not displayed
-            for k in range(len(axs)):
-                axs[k].axis("off")
+                for row_idx, s in enumerate(batch):
+                    for col_idx, color_key in enumerate(color_keys):
+                        ax = axs[row_idx][col_idx]
+                        if color_key not in adata_dict[s].obs.columns:
+                            ax.axis("off")
+                            continue
 
-            plt.tight_layout()
+                        sc.pl.umap(
+                            adata_dict[s],
+                            s=10,
+                            color=color_key,
+                            ax=ax,
+                            show=False,
+                            title=f"{s}: {color_key}",
+                        )
+                        ax.set_axis_off()
 
-            page_captions.append("Sets: " + ", ".join(batch))
-            save_page(fig)
-            plt.close(fig)
+                plt.tight_layout()
+
+                page_captions.append(
+                    "Sets: "
+                    + ", ".join(batch)
+                    + " | Colors: "
+                    + ", ".join(color_keys)
+                )
+                save_page(fig)
+                plt.close(fig)
     finally:
         close()
     if not is_pdf:
         _write_html_gallery(
             output_path,
-            title="Combined UMAPs",
+            title="Combined UMAPs by " + ", ".join(color_keys),
             image_paths=image_paths,
             captions=page_captions,
             html_output_path=html_output_path
