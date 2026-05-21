@@ -760,6 +760,10 @@ def add_spatial(
     """Add move x and y coordinates from .obs to .obsm["spatial"] for squidpy.
     """
     adata.obsm["spatial"] = adata.obs[[y_key, x_key]].values
+    # Negate row (y) so the coordinate follows Plotly convention (y increases upward).
+    # squidpy's spatial_scatter inverts y internally, so static plots must reverse
+    # this negation before calling squidpy (see plotting._plot_spatial).
+    adata.obsm["spatial"][:, 1] *= -1
 
     return adata
 

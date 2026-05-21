@@ -50,6 +50,8 @@ def _plot_spatial(
     categorical: bool,
 ) -> None:
     sample_adata = _subset_for_sample_plot(adata, sample)
+    # squidpy inverts y internally; restore positive row values before plotting.
+    sample_adata.obsm["spatial"][:, 1] *= -1
 
     if categorical:
         sq.pl.spatial_scatter(
