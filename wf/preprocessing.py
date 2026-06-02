@@ -556,7 +556,7 @@ def add_tpm_layer(
     # genes with eff=0 stay 0 after this division
     eff_kb = np.where(eff > 0, eff / 1000.0, 1.0)
     rpk = counts.multiply(1.0 / eff_kb)
-    rpk = rpk.multiply(sp.diags(np.where(eff > 0, 1.0, 0.0)))
+    rpk = rpk.multiply(np.where(eff > 0, 1.0, 0.0))
 
     # per-spot scaling factor: 1e6 / sum(RPK over included genes)
     rpk_sum = np.asarray(rpk.sum(axis=1)).ravel()
