@@ -479,6 +479,96 @@ def select_highly_variable_genes(
     adata.var["highly_variable"] = adata.var_names.isin(hvg_names)
 
 
+def _match_lengths(
+    var_names: "pd.Index",
+    lengths_df: pd.DataFrame,
+) -> np.ndarray:
+    """Return a float array of gene lengths aligned to var_names order.
+
+    Tries gene_name column first, then gene_id. Duplicates are resolved by
+    keeping the longest span. Unmatched genes get NaN.
+    """
+    name_col = "gene_name" if "gene_name" in lengths_df.columns else "gene_id"
+    lengths_df = (
+        lengths_df[[name_col, "length"]]
+        .dropna(subset=[name_col])
+        .sort_values("length", ascending=False)
+        .drop_duplicates(subset=name_col)
+        .set_index(name_col)
+    )
+    return lengths_df["length"].reindex(var_names).values.astype(float)
+
+
+def _compute_effective_lengths(
+    raw_lengths: np.ndarray,
+    mean_fragment_length: int = 150,
+    min_length: int = 200,
+) -> tuple:
+    """Convert raw gene body spans to effective lengths.
+
+    Returns (eff_lengths, exclude_mask) where exclude_mask is True for genes
+    that should be zeroed out (too short or unmatched).
+    """
+    missing_mask = np.isnan(raw_lengths)
+    too_short_mask = (~missing_mask) & (raw_lengths < min_length)
+    exclude_mask = missing_mask | too_short_mask
+
+    eff = np.where(
+        exclude_mask,
+        0.0,
+        np.maximum(raw_lengths - mean_fragment_length + 1, 1.0),
+    )
+    return eff, exclude_mask
+
+
+def add_tpm_layer(
+    adata: anndata.AnnData,
+    lengths_df: pd.DataFrame,
+    mean_fragment_length: int = 150,
+    min_length: int = 200,
+) -> None:
+    """Add layers['tpm'] and layers['log1p_tpm'] to adata in-place.
+
+    Requires layers['counts'] to be present. Genes shorter than min_length or
+    absent from lengths_df receive TPM = 0 and do not contribute to the
+    per-spot sum.
+    """
+    if "counts" not in adata.layers:
+        raise ValueError("add_tpm_layer requires adata.layers['counts'].")
+
+    raw_lengths = _match_lengths(adata.var_names, lengths_df)
+    eff_lengths, exclude_mask = _compute_effective_lengths(
+        raw_lengths, mean_fragment_length=mean_fragment_length, min_length=min_length
+    )
+
+    n_matched = int((~np.isnan(raw_lengths)).sum())
+    n_too_short = int((~np.isnan(raw_lengths) & (raw_lengths < min_length)).sum())
+    n_excluded = int(exclude_mask.sum())
+    logging.info(
+        "TPM gene lengths: %d/%d matched, %d too short (<%d bp), %d total excluded",
+        n_matched, len(adata.var_names), n_too_short, min_length, n_excluded,
+    )
+
+    counts = sp.csr_matrix(adata.layers["counts"], dtype=np.float32)
+    eff = eff_lengths.astype(np.float32)
+
+    # RPK per gene per spot: counts / (eff_length / 1000)
+    # genes with eff=0 stay 0 after this division
+    eff_kb = np.where(eff > 0, eff / 1000.0, 1.0)
+    rpk = counts.multiply(1.0 / eff_kb)
+    rpk = rpk.multiply(sp.diags(np.where(eff > 0, 1.0, 0.0)))
+
+    # per-spot scaling factor: 1e6 / sum(RPK over included genes)
+    rpk_sum = np.asarray(rpk.sum(axis=1)).ravel()
+    scale = np.where(rpk_sum > 0, 1e6 / rpk_sum, 0.0).astype(np.float32)
+
+    tpm = rpk.multiply(sp.diags(scale)).tocsr().astype(np.float32)
+
+    adata.layers["tpm"] = tpm
+    adata.layers["log1p_tpm"] = tpm.copy()
+    sc.pp.log1p(adata, layer="log1p_tpm")
+
+
 def _cluster_from_embedding(
     adata: anndata.AnnData,
     use_rep: str,

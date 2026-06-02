@@ -10,7 +10,7 @@ import scanpy as sc
 
 from latch import message
 from latch.resources.tasks import custom_task
-from latch.types import LatchDir
+from latch.types import LatchDir, LatchFile
 
 try:
     from latch.resources.tasks import g6e_2xlarge_task as stagate_gpu_task
@@ -168,6 +168,8 @@ def preprocess_wt_task(
     max_counts: int = 0,
     max_pct_mt: float = 100.0,
     normalize_target_sum: Optional[float] = None,
+    normalization_mode: str = "total",
+    gene_lengths_file: Optional[LatchFile] = None,
 ) -> LatchDir:
     if min_genes == 0:
         warning = "Minimum genes set to 0"
@@ -250,10 +252,22 @@ def preprocess_wt_task(
         )
 
     adata.layers["counts"] = adata.X.copy()
-    sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
-    adata.layers["normalized"] = adata.X.copy()
-    sc.pp.log1p(adata)
-    adata.layers["log1p"] = adata.X.copy()
+
+    if normalization_mode == "tpm":
+        if gene_lengths_file is None:
+            raise ValueError(
+                "normalization_mode='tpm' requires gene_lengths_file to be set."
+            )
+        lengths_df = pd.read_csv(Path(gene_lengths_file.local_path))
+        pp.add_tpm_layer(adata, lengths_df)
+        adata.X = adata.layers["log1p_tpm"].copy()
+        adata.layers["log1p"] = adata.X.copy()
+    else:
+        sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
+        adata.layers["normalized"] = adata.X.copy()
+        sc.pp.log1p(adata)
+        adata.layers["log1p"] = adata.X.copy()
+
     pp.select_highly_variable_genes(
         adata,
         n_top_genes=n_top_genes,

@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from latch import map_task
 from latch.resources.workflow import workflow
+from latch.types import LatchFile
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule, Params, Section, Spoiler, Text)
 
@@ -37,7 +38,9 @@ flow = [
         ),
         Spoiler(
             "Select Variable Features",
+            Params("normalization_mode"),
             Params("normalize_target_sum"),
+            Params("gene_lengths_file"),
             Params("n_top_genes"),
             Params("hvg_flavor"),
         ),
@@ -247,8 +250,29 @@ metadata = LatchMetadata(
         "normalize_target_sum": LatchParameter(
             display_name="normalize target sum",
             description="Optional target sum for `scanpy.pp.normalize_total`. \
-                Leave unset to use Scanpy's default behavior.",
+                Leave unset to use Scanpy's default behavior. Ignored when \
+                normalization_mode is 'tpm'.",
             batch_table_column=True
+        ),
+        "normalization_mode": LatchParameter(
+            display_name="normalization mode: total or tpm",
+            description="'total' uses scanpy.pp.normalize_total (library-size / CPM). \
+                'tpm' corrects for gene body length using a pre-computed gene lengths \
+                CSV; set gene_lengths_file when using this mode.",
+            batch_table_column=True,
+            rules=[
+                LatchRule(
+                    regex="^(total|tpm)$",
+                    message="normalization_mode must be 'total' or 'tpm'",
+                )
+            ],
+        ),
+        "gene_lengths_file": LatchParameter(
+            display_name="gene lengths CSV (required for TPM mode)",
+            description="CSV with columns gene_name and length produced by \
+                gtf_gene_lengths.py. Required when normalization_mode='tpm'; \
+                ignored otherwise.",
+            batch_table_column=True,
         ),
         "pt_size": LatchParameter(
             display_name="Override point size",
@@ -293,6 +317,8 @@ def wtOpt_workflow(
     compute_cluster_markers: bool = True,
     marker_top_n: int = 50,
     normalize_target_sum: Optional[float] = 4000.0,
+    normalization_mode: str = "total",
+    gene_lengths_file: Optional[LatchFile] = None,
     pt_size: Optional[float] = None,
     qc_pt_size: Optional[float] = None,
 ) -> None:
@@ -422,6 +448,8 @@ def wtOpt_workflow(
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
         normalize_target_sum=normalize_target_sum,
+        normalization_mode=normalization_mode,
+        gene_lengths_file=gene_lengths_file,
     )
 
     clustering_preprocess_dir = train_stagate_task(
