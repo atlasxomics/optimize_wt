@@ -552,17 +552,17 @@ def add_tpm_layer(
     counts = sp.csr_matrix(adata.layers["counts"], dtype=np.float32)
     eff = eff_lengths.astype(np.float32)
 
-    # RPK per gene per spot: counts / (eff_length / 1000)
-    # genes with eff=0 stay 0 after this division
-    eff_kb = np.where(eff > 0, eff / 1000.0, 1.0)
-    rpk = counts.multiply(1.0 / eff_kb)
-    rpk = rpk.multiply(np.where(eff > 0, 1.0, 0.0))
+    # RPK: scale each gene column by 1000/eff_length; excluded genes → 0.
+    # Shape (1, n_genes) makes the column-wise broadcast explicit.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        col_scale = np.where(eff > 0, 1000.0 / eff, 0.0).reshape(1, -1).astype(np.float32)
+    rpk = counts.multiply(col_scale)
 
-    # per-spot scaling factor: 1e6 / sum(RPK over included genes)
+    # Per-spot TPM scaling: 1e6 / sum(RPK). Shape (n_spots, 1) for row-wise broadcast.
     rpk_sum = np.asarray(rpk.sum(axis=1)).ravel()
     scale = np.where(rpk_sum > 0, 1e6 / rpk_sum, 0.0).astype(np.float32)
 
-    tpm = rpk.multiply(sp.diags(scale)).tocsr().astype(np.float32)
+    tpm = rpk.multiply(scale[:, None]).tocsr().astype(np.float32)
 
     adata.layers["tpm"] = tpm
     adata.layers["log1p_tpm"] = tpm.copy()
