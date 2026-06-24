@@ -569,6 +569,88 @@ def plot_spatial_qc(
         )
 
 
+def plot_svg_spatial(
+    adata: anndata.AnnData,
+    samples: List[str],
+    output_path: str,
+    top_n: int = 10,
+    pt_size: float = 5.0,
+    layer: str = "log1p",
+    html_output_path: Optional[str] = None,
+) -> None:
+    """Plot spatial expression of the top N spatially variable genes."""
+
+    if "moranI" not in adata.uns or adata.uns["moranI"].empty:
+        return
+
+    if layer not in adata.layers:
+        return
+
+    svg_df = adata.uns["moranI"].sort_values("I", ascending=False)
+    top_genes = [g for g in svg_df.index[:top_n] if g in adata.var_names]
+    if len(top_genes) == 0:
+        return
+
+    gene_idx = adata.var_names.get_indexer(top_genes)
+    plot_adata = anndata.AnnData(
+        X=adata.layers[layer][:, gene_idx],
+        obs=adata.obs.copy(),
+        var=adata.var.iloc[gene_idx].copy(),
+        uns=adata.uns.copy(),
+        obsm={k: v.copy() for k, v in adata.obsm.items()},
+    )
+
+    n_cols = 5
+    n_rows = max(1, -(-len(top_genes) // n_cols))
+
+    page_captions: List[str] = []
+    save_page, close, is_pdf, image_paths = _get_page_saver(output_path)
+    try:
+        for sample in samples:
+            fig, axs = plt.subplots(
+                n_rows, n_cols,
+                figsize=(n_cols * 4, n_rows * 4),
+                squeeze=False,
+            )
+            for idx, gene in enumerate(top_genes):
+                row, col = divmod(idx, n_cols)
+                moran_i = float(svg_df.loc[gene, "I"]) if gene in svg_df.index else float("nan")
+                _plot_spatial(
+                    adata=plot_adata,
+                    sample=sample,
+                    color=gene,
+                    ax=axs[row][col],
+                    title=f"{gene}  I={moran_i:.3f}",
+                    pt_size=pt_size,
+                    categorical=False,
+                )
+            for idx in range(len(top_genes), n_rows * n_cols):
+                row, col = divmod(idx, n_cols)
+                axs[row][col].set_axis_off()
+
+            plt.suptitle(
+                f"{sample} — top {len(top_genes)} spatially variable genes",
+                fontsize=13,
+                fontweight="bold",
+                y=1.02,
+            )
+            plt.tight_layout()
+            page_captions.append(f"{sample}: top {len(top_genes)} SVGs")
+            save_page(fig)
+            plt.close(fig)
+    finally:
+        close()
+
+    if not is_pdf:
+        _write_html_gallery(
+            output_path,
+            title="Top Spatially Variable Genes",
+            image_paths=image_paths,
+            captions=page_captions,
+            html_output_path=html_output_path,
+        )
+
+
 def plot_spatial_coherence(
     coherence_df,
     output_path: str,
