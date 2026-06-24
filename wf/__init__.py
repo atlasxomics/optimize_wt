@@ -313,8 +313,8 @@ def wtOpt_workflow(
     4. Builds either:
        - a Scanpy PCA/Harmony embedding (`clustering_backend="scanpy"`), or
        - a STAGATE embedding (`clustering_backend="stagate"`).
-    5. Iterates over clustering parameter sets in parallel and writes one
-       `combined.h5ad` per successful set.
+    5. Iterates over clustering parameter sets in parallel and writes
+       `combined.h5ad` plus a reduced `combined_sm.h5ad` per successful set.
     6. Aggregates UMAPs, spatial plots, medians, and spatial coherence scores
        into the final output directory.
 
@@ -389,6 +389,7 @@ def wtOpt_workflow(
       coloring when more than one sample or condition is supplied
     - `figures/` with UMAP, spatial clustering, and spatial QC plot images
     - one subdirectory per successful parameter set containing `combined.h5ad`
+      and `combined_sm.h5ad`
     - `_intermediates/` containing staged preprocessing data used between tasks
 
     ## Running The Workflow
@@ -402,7 +403,8 @@ def wtOpt_workflow(
     4. Set QC and HVG parameters in **Preprocessing Parameters**.
     5. Set the parameter sweep in **Iterative Parameters**.
     6. Launch the workflow and review the output figures and per-set
-       `combined.h5ad` files to choose a preferred parameter set.
+       `combined.h5ad` or `combined_sm.h5ad` files to choose a preferred
+       parameter set.
 
     ## Notes
 

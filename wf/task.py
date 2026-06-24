@@ -17,6 +17,7 @@ try:
 except ImportError:
     from latch.resources.tasks import large_gpu_task as stagate_gpu_task
 
+import wf.features as features
 import wf.plotting as pl
 import wf.preprocessing as pp
 import wf.utils as utils
@@ -460,7 +461,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                     e,
                 )
 
-        adata.write(out_dir / "combined.h5ad")
+        features.save_anndata_objects(adata, out_dir)
         return utils.WTOptSetResult(
             set_index=job.set_index,
             set_str=set_str,
