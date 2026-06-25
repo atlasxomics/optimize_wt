@@ -1,4 +1,5 @@
 import itertools
+import json
 import logging
 import os
 from pathlib import Path
@@ -11,6 +12,12 @@ import scanpy as sc
 from latch import message
 from latch.resources.tasks import custom_task
 from latch.types import LatchDir
+from latch.types.plots import (
+    PlotsArtifact,
+    PlotsArtifactBindings,
+    PlotsArtifactTemplate,
+    Widget,
+)
 
 try:
     from latch.resources.tasks import g6e_2xlarge_task as stagate_gpu_task
@@ -23,6 +30,8 @@ import wf.preprocessing as pp
 import wf.utils as utils
 
 RANDOM_STATE = 42
+PLOTS_ARTIFACT_TEMPLATE_ID = "1189"
+PLOTS_ARTIFACT_DATA_TRANSFORM_ID = "453068"
 
 logging.basicConfig(
     format="%(levelname)s - %(asctime)s - %(message)s",
@@ -32,6 +41,30 @@ logging.basicConfig(
 
 def _write_metadata_csv(output_path: Path, metadata: Dict[str, object]) -> None:
     pd.DataFrame([metadata]).to_csv(output_path, index=False)
+
+
+def _write_plots_artifact(output_dir: Path, sm_remote_path: str) -> None:
+    artifact = PlotsArtifact(
+        bindings=PlotsArtifactBindings(
+            plot_templates=[
+                PlotsArtifactTemplate(
+                    template_id=PLOTS_ARTIFACT_TEMPLATE_ID,
+                    widgets=[
+                        Widget(
+                            transform_id=PLOTS_ARTIFACT_DATA_TRANSFORM_ID,
+                            key="data_path",
+                            value=sm_remote_path,
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+
+    artifacts_dir = output_dir / "Launch_Plots"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    with open(artifacts_dir / "artifact.json", "w") as f:
+        json.dump(artifact.asdict(), f, indent=2)
 
 
 def _write_cluster_marker_outputs(
@@ -462,6 +495,11 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 )
 
         features.save_anndata_objects(adata, out_dir)
+        output_remote_path = f"latch:///wt_opts/{job.project_name}/{set_str}"
+        _write_plots_artifact(
+            out_dir,
+            f"{output_remote_path}/combined_sm.h5ad",
+        )
         return utils.WTOptSetResult(
             set_index=job.set_index,
             set_str=set_str,
@@ -474,7 +512,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
             succeeded=True,
             output_dir=LatchDir(
                 str(out_dir),
-                f"latch:///wt_opts/{job.project_name}/{set_str}",
+                output_remote_path,
             ),
         )
     except Exception as e:
