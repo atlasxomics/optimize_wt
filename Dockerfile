@@ -22,7 +22,7 @@ arg DEBIAN_FRONTEND=noninteractive
 
 # Latch SDK
 # DO NOT REMOVE
-run pip install latch==2.53.10
+run pip install latch==2.76.5
 run mkdir /opt/latch
 run apt-get update && \
     apt-get install -y --no-install-recommends build-essential git && \
