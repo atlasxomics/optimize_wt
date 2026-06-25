@@ -854,6 +854,51 @@ def spatial_coherence_table(adata_dict: dict[str, anndata.AnnData]) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
+def run_spatial_autocorr(
+    adata: anndata.AnnData,
+    layer: str = "log1p",
+    n_jobs: int = 4,
+) -> pd.DataFrame:
+    """Compute Moran's I per gene; results stored in adata.uns['moranI']."""
+
+    if "spatial_connectivities" not in adata.obsp:
+        add_spatial_neighbors(adata)
+
+    if layer not in adata.layers:
+        raise KeyError(
+            f"Layer '{layer}' not found in AnnData. Available: "
+            f"{list(adata.layers.keys())}."
+        )
+
+    genes_upper = pd.Index(adata.var_names.astype(str)).str.upper()
+    keep = ~(
+        genes_upper.str.startswith("MT-")
+        | genes_upper.str.startswith("RPS")
+        | genes_upper.str.startswith("RPL")
+        | genes_upper.str.startswith("MTRNR")
+    )
+    if "highly_variable" in adata.var.columns:
+        keep = keep & adata.var["highly_variable"].to_numpy()
+
+    test_genes = adata.var_names[keep].tolist()
+    if len(test_genes) == 0:
+        raise ValueError("No genes remain after filtering for spatial autocorrelation.")
+
+    logging.info(
+        "Running spatial autocorrelation (Moran's I) on %d genes.", len(test_genes)
+    )
+    sq.gr.spatial_autocorr(
+        adata,
+        mode="moran",
+        genes=test_genes,
+        layer=layer,
+        n_perms=None,
+        n_jobs=n_jobs,
+    )
+
+    return adata.uns["moranI"].sort_values("I", ascending=False)
+
+
 def calculate_qc(adata: anndata.AnnData, genome: str) -> None:
     annotate_biotypes(adata, genome)
 

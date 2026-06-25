@@ -17,6 +17,7 @@ try:
 except ImportError:
     from latch.resources.tasks import large_gpu_task as stagate_gpu_task
 
+import wf.features as features
 import wf.plotting as pl
 import wf.preprocessing as pp
 import wf.utils as utils
@@ -460,7 +461,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                     e,
                 )
 
-        adata.write(out_dir / "combined.h5ad")
+        features.save_anndata_objects(adata, out_dir)
         return utils.WTOptSetResult(
             set_index=job.set_index,
             set_str=set_str,
@@ -683,6 +684,28 @@ def wtOpt_task(
             message(
                 typ="warning",
                 data={"title": "spatial coherence failed", "body": warning},
+            )
+
+    effective_pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
+    if has_spatial_graph and "log1p" in adata.layers:
+        try:
+            svg_df = pp.run_spatial_autocorr(adata, layer="log1p", n_jobs=4)
+            svg_df.to_csv(out_dir / "svg_genes.csv")
+            pl.plot_svg_spatial(
+                adata,
+                samples,
+                str(figures_dir / "svg_spatial.png"),
+                top_n=10,
+                pt_size=effective_pt_size,
+                layer="log1p",
+                html_output_path=str(out_dir / "svg_spatial.html"),
+            )
+        except Exception as e:
+            warning = f"Spatial autocorrelation failed: {e}"
+            logging.warning(warning)
+            message(
+                typ="warning",
+                data={"title": "SVG analysis failed", "body": warning},
             )
 
     return LatchDir(str(out_dir), f"latch:///wt_opts/{project_name}")
