@@ -278,7 +278,7 @@ def wtOpt_workflow(
     n_comps: List[int] = [30],
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
-    stagate_k_cutoff: int = 6,
+    stagate_k_cutoff: int = 4,
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
