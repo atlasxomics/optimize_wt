@@ -100,16 +100,65 @@ Advanced Options:
 
 Results are written to `latch:///wt_opts/<project_name>` and include:
 
-- `metadata.csv`
-- `medians.csv`
-- `spatial_coherence.csv` when spatial coherence can be computed
-- `all_umaps.html` with cluster-colored UMAPs, plus sample and condition
-  coloring when more than one sample or condition is supplied
-- `figures/` with UMAP, spatial clustering, and spatial QC plot images
-- one subdirectory per successful parameter set containing `combined.h5ad`,
-  `combined_sm.h5ad`, optional DEG CSVs, and an optional compact marker-gene
-  heatmap
-- `_intermediates/` containing staged preprocessing data used between tasks
+Top-level summary files:
+
+- `metadata.csv`: one-row manifest of the workflow inputs and parameter values,
+  including run IDs, conditions, filtering thresholds, backend choice, and the
+  optimization grid.
+- `medians.csv`: per-run median QC metrics after filtering, including UMI
+  counts, detected gene counts, and percent mitochondrial reads.
+- `spatial_coherence.csv`: per-parameter-set spatial coherence scores when a
+  spatial neighbor graph can be built.
+- `svg_genes.csv`: spatially variable gene statistics when spatial
+  autocorrelation completes successfully.
+
+Top-level interactive plots:
+
+- `all_umaps.html`: UMAP panels for each successful parameter set, colored by
+  cluster and, when applicable, sample and condition.
+- `all_spatialdim.html`: spatial cluster plots for each successful parameter
+  set and sample.
+- `spatial_qc.html`: spatial plots of QC metrics such as total counts, detected
+  genes, and mitochondrial percentage.
+- `svg_spatial.html`: spatial expression plots for the top spatially variable
+  genes when SVG analysis completes successfully.
+
+Static figures are written under `figures/` and mirror the interactive HTML
+outputs where possible. This directory can include UMAP summaries, spatial
+cluster summaries, spatial QC plots, spatial coherence plots, and spatially
+variable gene plots.
+
+Each successful parameter set also gets its own subdirectory named with the
+backend and parameter values, for example
+`set1_backend-scanpy_cr1-0-nc30-nn15-md0-5-sp1-0`. Each set directory
+contains:
+
+- `combined.h5ad`: full AnnData object with the clustered cells/spots,
+  embeddings, metadata, layers, and clustering results for that parameter set.
+- `combined_sm.h5ad`: reduced AnnData object for lightweight review and launch
+  plotting. It keeps the UMAP, spatial coordinates, cluster/sample metadata,
+  and a compact expression matrix while dropping large QC and intermediate
+  fields.
+- `Launch_Plots/artifact.json`: Latch plot artifact metadata that points to the
+  reduced AnnData object.
+- `deg_clusters.csv`: optional cluster marker table when
+  `compute_cluster_markers` is enabled and marker ranking succeeds.
+- `deg_clusters_top<marker_top_n>.csv`: optional compact marker table with the
+  top marker genes per cluster.
+- `figures/cluster_marker_heatmap_top<marker_top_n>.png`: optional marker-gene
+  heatmap.
+- `figures/deg_heatmap_top<marker_top_n>_compact_hires.pdf`: optional
+  high-resolution marker-gene heatmap.
+
+Intermediate task outputs are stored under `_intermediates/`:
+
+- `_intermediates/preprocess/preprocessed.h5ad`: filtered, normalized,
+  log-transformed, HVG-selected AnnData object used as input to optimization
+  jobs.
+- `_intermediates/preprocess/figures/`: pre- and post-filtering QC violin plots
+  from preprocessing.
+- `_intermediates/stagate_preprocess/preprocessed.h5ad`: STAGATE-embedded
+  preprocessed object when `clustering_backend="stagate"`.
 
 ## Running The Workflow
 
