@@ -420,7 +420,7 @@ def build_wt_opt_jobs_task(
     return jobs
 
 
-@custom_task(cpu=4, memory=128, storage_gib=1000)
+@custom_task(cpu=4, memory=256, storage_gib=1000)
 def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
     set_str = utils.format_wt_opt_set_str(
         set_index=job.set_index,
