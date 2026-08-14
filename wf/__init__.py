@@ -100,7 +100,7 @@ metadata = LatchMetadata(
         ),
         "project_name": LatchParameter(
             display_name="project name",
-            description="Name of output directory in wt_opts/",
+            description="Name of output directory in rna_analysis/",
             batch_table_column=True,
             rules=[
                 LatchRule(
@@ -336,7 +336,7 @@ def wtOpt_workflow(
     ## Parameter Overview
 
     Global Parameters:
-    - `project_name`: output folder name under `wt_opts`
+    - `project_name`: output folder name under `rna_analysis`
     - `genome`: reference genome identifier
     - `clustering_backend`: choose `scanpy` or `stagate`
 
@@ -380,7 +380,7 @@ def wtOpt_workflow(
 
     ## Outputs
 
-    Results are written to `latch:///wt_opts/<project_name>` and include:
+    Results are written to `latch:///rna_analysis/<project_name>` and include:
 
     Top-level summary files:
 

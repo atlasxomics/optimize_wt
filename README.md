@@ -47,7 +47,7 @@ coordinate-based scatter plots rather than image overlays.
 
 Global Parameters:
 
-- `project_name`: output folder name under `wt_opts`
+- `project_name`: output folder name under `rna_analysis`
 - `genome`: reference genome identifier
 - `clustering_backend`: choose `scanpy` or `stagate`
 
@@ -98,7 +98,7 @@ Advanced Options:
 
 ## Outputs
 
-Results are written to `latch:///wt_opts/<project_name>` and include:
+Results are written to `latch:///rna_analysis/<project_name>` and include:
 
 Top-level summary files:
 

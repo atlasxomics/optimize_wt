@@ -300,7 +300,7 @@ def preprocess_wt_task(
 
     return LatchDir(
         str(out_dir),
-        f"latch:///wt_opts/{project_name}/_intermediates/preprocess",
+        f"latch:///rna_analysis/{project_name}/_intermediates/preprocess",
     )
 
 
@@ -342,7 +342,7 @@ def train_stagate_task(
 
     return LatchDir(
         str(out_dir),
-        f"latch:///wt_opts/{project_name}/_intermediates/stagate_preprocess",
+        f"latch:///rna_analysis/{project_name}/_intermediates/stagate_preprocess",
     )
 
 
@@ -495,7 +495,7 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 )
 
         features.save_anndata_objects(adata, out_dir)
-        output_remote_path = f"latch:///wt_opts/{job.project_name}/{set_str}"
+        output_remote_path = f"latch:///rna_analysis/{job.project_name}/{set_str}"
         _write_plots_artifact(
             out_dir,
             f"{output_remote_path}/combined_sm.h5ad",
@@ -746,4 +746,4 @@ def wtOpt_task(
                 data={"title": "SVG analysis failed", "body": warning},
             )
 
-    return LatchDir(str(out_dir), f"latch:///wt_opts/{project_name}")
+    return LatchDir(str(out_dir), f"latch:///rna_analysis/{project_name}")
