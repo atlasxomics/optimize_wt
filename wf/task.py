@@ -12,6 +12,7 @@ import scanpy as sc
 from scipy import sparse as sp
 
 from latch import message
+from latch.executions import rename_current_execution
 from latch.resources.tasks import custom_task
 from latch.types import LatchDir
 from latch.types.plots import (
@@ -209,6 +210,19 @@ def preprocess_wt_task(
     max_pct_mt: float = 100.0,
     normalize_target_sum: Optional[float] = None,
 ) -> LatchDir:
+    logging.info("Attempting to set execution name to: %s", project_name)
+    try:
+        rename_current_execution(str(project_name))
+        logging.info("Successfully renamed execution to: %s", project_name)
+    except Exception as e:
+        # Execution naming is presentation-only and should never prevent the
+        # analysis from running.
+        logging.warning(
+            "Unable to rename execution to '%s': %s",
+            project_name,
+            e,
+        )
+
     if min_genes == 0:
         warning = "Minimum genes set to 0"
         logging.warning(warning)
