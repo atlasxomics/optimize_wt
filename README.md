@@ -137,7 +137,7 @@ contains:
   embeddings, metadata, layers, and clustering results for that parameter set.
 - `combined_sm.h5ad`: reduced AnnData object for lightweight review and launch
   plotting. It keeps the UMAP, spatial coordinates, cluster/sample metadata,
-  a compact log1p expression matrix in `X`, and sparse raw counts in
+  sparse float32 log1p expression in `X`, and sparse float32 raw counts in
   `layers["counts"]` while dropping large QC and intermediate fields.
 - `Launch_Plots/artifact.json`: Latch plot artifact metadata that points to the
   reduced AnnData object.

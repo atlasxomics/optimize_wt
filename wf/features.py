@@ -168,11 +168,11 @@ def add_spatial_offset(
 
 def make_small_anndata(
     adata: ad.AnnData,
-    matrix_dtype=np.float16,
-    force_dense: bool = True,
+    matrix_dtype=np.float32,
+    force_dense: bool = False,
     x_priority: Optional[List[str]] = None,
 ) -> ad.AnnData:
-    """Return a reduced AnnData object for plotting and notebook use."""
+    """Return a reduced, sparse AnnData object for plotting and notebook use."""
     out = adata.copy()
 
     out.X, x_source = _plotting_x_matrix(
@@ -218,7 +218,7 @@ def make_small_anndata(
         if force_dense:
             out.X = out.X.toarray().astype(matrix_dtype)
         else:
-            out.X = out.X.astype(matrix_dtype)
+            out.X = out.X.tocsr().astype(matrix_dtype, copy=False)
     else:
         out.X = np.asarray(out.X, dtype=matrix_dtype)
 
