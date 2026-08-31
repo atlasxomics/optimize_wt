@@ -202,12 +202,31 @@ def _write_html_gallery(
         fh.write(html)
 
 
+def write_html_gallery(
+    output_path: str,
+    title: str,
+    image_paths: List[str],
+    captions: Optional[List[str]] = None,
+    html_output_path: Optional[str] = None,
+) -> None:
+    """Write a gallery for image pages produced across sequential tasks."""
+
+    _write_html_gallery(
+        output_path=output_path,
+        title=title,
+        image_paths=image_paths,
+        captions=captions,
+        html_output_path=html_output_path,
+    )
+
+
 def combine_umaps(
     adata_dict: dict[str, anndata.AnnData],
     output_path: str,
     html_output_path: Optional[str] = None,
     color_keys: Optional[List[str]] = None,
-) -> None:
+    write_gallery: bool = True,
+) -> List[str]:
     """Create a figure with UMAPs colored by categorical metadata.
 
     If `output_path` ends in `.pdf`, a multipage PDF is written.
@@ -294,7 +313,7 @@ def combine_umaps(
                 plt.close(fig)
     finally:
         close()
-    if not is_pdf:
+    if not is_pdf and write_gallery:
         _write_html_gallery(
             output_path,
             title="Combined UMAPs by " + ", ".join(color_keys),
@@ -302,6 +321,7 @@ def combine_umaps(
             captions=page_captions,
             html_output_path=html_output_path
         )
+    return image_paths
 
 
 def plot_marker_heatmap(
@@ -453,8 +473,9 @@ def combine_spatials(
     samples: List[str],
     output_path: str,
     pt_size: float = 5.0,
-    html_output_path: Optional[str] = None
-) -> None:
+    html_output_path: Optional[str] = None,
+    write_gallery: bool = True,
+) -> List[str]:
     """For each sample/condition, create a spatialdimplot colored by cluster.
 
     If `output_path` ends in `.pdf`, a multipage PDF is written.
@@ -495,7 +516,7 @@ def combine_spatials(
                 plt.close(fig)
     finally:
         close()
-    if not is_pdf:
+    if not is_pdf and write_gallery:
         _write_html_gallery(
             output_path,
             title="Combined Spatial Cluster Plots",
@@ -503,6 +524,7 @@ def combine_spatials(
             captions=page_captions,
             html_output_path=html_output_path
         )
+    return image_paths
 
 
 def plot_spatial_qc(

@@ -669,18 +669,142 @@ def wtOpt_task(
     adata = ad.read_h5ad(preprocessed_h5ad)
 
     successful_results = [result for result in results if result.succeeded]
-    adata_dict: Dict[str, ad.AnnData] = {}
+    condition_count = len({
+        utils.sanitize_condition(run.condition)
+        for run in runs
+    })
+    umap_color_keys = ["cluster"]
+    if len(set(samples)) > 1:
+        umap_color_keys.append("sample")
+    if condition_count > 1:
+        umap_color_keys.append("condition")
+
+    pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
+    has_spatial_graph = "spatial_connectivities" in adata.obsp
+    umap_image_paths: List[str] = []
+    umap_captions: List[str] = []
+    spatial_image_paths: List[str] = []
+    spatial_captions: List[str] = []
+    coherence_rows = []
+    processed_set_count = 0
+
+    # Read, summarize, and release one parameter set at a time. The reduced
+    # object contains every field needed for UMAP/spatial plotting and cluster
+    # coherence, without duplicating the full expression object in memory.
     for result in successful_results:
         if result.output_dir is None:
             continue
-        combined_path = Path(result.output_dir.local_path) / "combined.h5ad"
-        if combined_path.exists():
-            adata_dict[result.set_str] = ad.read_h5ad(combined_path)
 
-    if len(successful_results) == 0:
+        result_dir = Path(result.output_dir.local_path)
+        combined_path = result_dir / "combined_sm.h5ad"
+        if not combined_path.exists():
+            logging.warning(
+                "Skipping aggregation for %s: missing %s.",
+                result.set_str,
+                combined_path,
+            )
+            continue
+
+        logging.info("Aggregating parameter set sequentially: %s", result.set_str)
+        set_adata = ad.read_h5ad(combined_path)
+        # Final set-level summaries only need obs, UMAP, and spatial metadata.
+        # Release both expression matrices before per-sample plotting creates
+        # temporary AnnData subsets.
+        set_adata.layers.clear()
+        set_adata.raw = None
+        set_adata.X = None
+        gc.collect()
+        processed_set_count += 1
+        try:
+            set_stem = f"set_{result.set_index:04d}"
+            try:
+                set_umap_paths = pl.combine_umaps(
+                    {result.set_str: set_adata},
+                    str(figures_dir / f"{set_stem}_umap.png"),
+                    color_keys=umap_color_keys,
+                    write_gallery=False,
+                )
+                umap_image_paths.extend(set_umap_paths)
+                umap_captions.extend(
+                    [f"Set: {result.set_str}"] * len(set_umap_paths)
+                )
+            except Exception as e:
+                logging.warning(
+                    "UMAP aggregation failed for %s: %s",
+                    result.set_str,
+                    e,
+                )
+
+            try:
+                set_spatial_paths = pl.combine_spatials(
+                    {result.set_str: set_adata},
+                    samples,
+                    str(figures_dir / f"{set_stem}_spatial.png"),
+                    pt_size=pt_size,
+                    write_gallery=False,
+                )
+                spatial_image_paths.extend(set_spatial_paths)
+                spatial_captions.extend(
+                    [
+                        f"Sample {samples[idx % len(samples)]} | "
+                        f"Set: {result.set_str}"
+                        for idx in range(len(set_spatial_paths))
+                    ]
+                )
+            except Exception as e:
+                logging.warning(
+                    "Spatial aggregation failed for %s: %s",
+                    result.set_str,
+                    e,
+                )
+
+            if has_spatial_graph:
+                try:
+                    if "cluster" not in set_adata.obs:
+                        raise KeyError(
+                            f"AnnData '{result.set_str}' is missing cluster labels."
+                        )
+                    aligned_clusters = set_adata.obs["cluster"].reindex(
+                        adata.obs_names
+                    )
+                    if aligned_clusters.isna().any():
+                        missing_count = int(aligned_clusters.isna().sum())
+                        raise ValueError(
+                            f"AnnData '{result.set_str}' is missing "
+                            f"{missing_count} preprocessed observations."
+                        )
+                    cluster_codes = (
+                        aligned_clusters.astype(str)
+                        .astype("category")
+                        .cat.codes.to_numpy(dtype=float)
+                    )
+                    coherence_rows.append(
+                        {
+                            "set": result.set_str,
+                            "n_clusters": int(aligned_clusters.nunique()),
+                            "morans_I": round(
+                                pp.morans_i(
+                                    adata.obsp["spatial_connectivities"],
+                                    cluster_codes,
+                                ),
+                                4,
+                            ),
+                        }
+                    )
+                except Exception as e:
+                    logging.warning(
+                        "Spatial coherence failed for %s: %s",
+                        result.set_str,
+                        e,
+                    )
+        finally:
+            del set_adata
+            gc.collect()
+
+    if processed_set_count == 0:
         warning = (
-            "No parameter sets completed successfully; skipping UMAP/spatial "
-            "summary plots."
+            "No successful parameter-set objects were available; skipping "
+            "UMAP/spatial summary plots."
         )
         logging.warning(warning)
         message(
@@ -691,30 +815,27 @@ def wtOpt_task(
             },
         )
     else:
-        condition_count = len({
-            utils.sanitize_condition(run.condition)
-            for run in runs
-        })
-        umap_color_keys = ["cluster"]
-        if len(set(samples)) > 1:
-            umap_color_keys.append("sample")
-        if condition_count > 1:
-            umap_color_keys.append("condition")
-
-        pl.combine_umaps(
-            adata_dict,
+        pl.write_html_gallery(
             str(figures_dir / "all_umaps.png"),
+            title="Combined UMAPs by " + ", ".join(umap_color_keys),
+            image_paths=umap_image_paths,
+            captions=umap_captions,
             html_output_path=str(out_dir / "all_umaps.html"),
-            color_keys=umap_color_keys,
+        )
+        pl.write_html_gallery(
+            str(figures_dir / "all_spatialdim.png"),
+            title="Combined Spatial Cluster Plots",
+            image_paths=spatial_image_paths,
+            captions=spatial_captions,
+            html_output_path=str(out_dir / "all_spatialdim.html"),
         )
 
-        pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
-        pl.combine_spatials(
-            adata_dict,
-            samples,
-            str(figures_dir / "all_spatialdim.png"),
-            pt_size=pt_size,
-            html_output_path=str(out_dir / "all_spatialdim.html"),
+    if len(coherence_rows) > 0:
+        coherence_df = pd.DataFrame(coherence_rows)
+        coherence_df.to_csv(out_dir / "spatial_coherence.csv", index=False)
+        pl.plot_spatial_coherence(
+            coherence_df,
+            str(figures_dir / "spatial_coherence.png"),
         )
 
     qc_metrics = ["n_genes_by_counts", "total_counts", "pct_counts_mt"]
@@ -748,26 +869,6 @@ def wtOpt_task(
         inplace=True,
     )
     medians_df.to_csv(out_dir / "medians.csv", index=False)
-
-    has_spatial_graph = "spatial_connectivities" in adata.obsp
-    if has_spatial_graph and len(adata_dict) > 0:
-        try:
-            coherence_df = pp.spatial_coherence_table(adata_dict)
-            coherence_df.to_csv(out_dir / "spatial_coherence.csv", index=False)
-            pl.plot_spatial_coherence(
-                coherence_df,
-                str(figures_dir / "spatial_coherence.png"),
-            )
-        except Exception as e:
-            warning = (
-                "Spatial coherence calculation failed after clustering. "
-                f"Exception: {e}"
-            )
-            logging.warning(warning)
-            message(
-                typ="warning",
-                data={"title": "spatial coherence failed", "body": warning},
-            )
 
     effective_pt_size = (
         pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
