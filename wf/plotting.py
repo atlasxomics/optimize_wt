@@ -583,7 +583,8 @@ def plot_svg_spatial(
     if "moranI" not in adata.uns or adata.uns["moranI"].empty:
         return
 
-    if layer not in adata.layers:
+    use_x = layer == "X"
+    if not use_x and layer not in adata.layers:
         return
 
     svg_df = adata.uns["moranI"].sort_values("I", ascending=False)
@@ -592,8 +593,9 @@ def plot_svg_spatial(
         return
 
     gene_idx = adata.var_names.get_indexer(top_genes)
+    expression = adata.X if use_x else adata.layers[layer]
     plot_adata = anndata.AnnData(
-        X=adata.layers[layer][:, gene_idx],
+        X=expression[:, gene_idx],
         obs=adata.obs.copy(),
         var=adata.var.iloc[gene_idx].copy(),
         uns=adata.uns.copy(),
@@ -614,7 +616,11 @@ def plot_svg_spatial(
             )
             for idx, gene in enumerate(top_genes):
                 row, col = divmod(idx, n_cols)
-                moran_i = float(svg_df.loc[gene, "I"]) if gene in svg_df.index else float("nan")
+                moran_i = (
+                    float(svg_df.loc[gene, "I"])
+                    if gene in svg_df.index
+                    else float("nan")
+                )
                 _plot_spatial(
                     adata=plot_adata,
                     sample=sample,
@@ -660,7 +666,9 @@ def plot_spatial_coherence(
     if coherence_df.empty:
         return
 
-    plot_df = coherence_df.sort_values(["n_clusters", "morans_I"]).reset_index(drop=True)
+    plot_df = coherence_df.sort_values(
+        ["n_clusters", "morans_I"]
+    ).reset_index(drop=True)
 
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.scatter(

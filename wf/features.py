@@ -185,7 +185,22 @@ def make_small_anndata(
     _drop_columns(out, "var", QC_VAR_COLUMNS)
 
     out.varm.clear()
-    out.layers.clear()
+    # Keep sparse raw counts for downstream count-aware plotting and
+    # co-profiling while dropping all other working layers.
+    for key in list(out.layers.keys()):
+        if key != "counts":
+            del out.layers[key]
+    if "counts" in out.layers:
+        if sp.issparse(out.layers["counts"]):
+            out.layers["counts"] = out.layers["counts"].tocsr().astype(
+                np.float32,
+                copy=False,
+            )
+        else:
+            out.layers["counts"] = np.asarray(
+                out.layers["counts"],
+                dtype=np.float32,
+            )
     out.raw = None
 
     for key in ["pca", "log1p", "neighbors"]:

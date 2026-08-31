@@ -1,4 +1,5 @@
 import itertools
+import gc
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ from typing import Dict, List, Optional
 import anndata as ad
 import pandas as pd
 import scanpy as sc
+from scipy import sparse as sp
 
 from latch import message
 from latch.resources.tasks import custom_task
@@ -76,11 +78,6 @@ def _write_cluster_marker_outputs(
         raise ValueError("marker_top_n must be at least 1.")
     if "cluster" not in adata.obs:
         raise KeyError("Cannot calculate cluster markers: missing obs['cluster'].")
-    if "log1p" not in adata.layers:
-        raise KeyError(
-            "Cannot calculate cluster markers: missing adata.layers['log1p']."
-        )
-
     n_clusters = int(adata.obs["cluster"].nunique())
     if n_clusters < 2:
         logging.warning(
@@ -97,9 +94,17 @@ def _write_cluster_marker_outputs(
         | genes_upper.str.startswith("RPL")
         | genes_upper.str.startswith("MTRNR")
     )
-    marker_adata = adata[:, keep_genes].copy()
-    marker_adata.X = adata.layers["log1p"][:, keep_genes].copy()
-    marker_adata.obs["cluster"] = marker_adata.obs["cluster"].astype(str)
+    expression = (
+        adata.layers["log1p"] if "log1p" in adata.layers else adata.X
+    )
+    marker_adata = ad.AnnData(
+        X=expression[:, keep_genes].copy(),
+        obs=pd.DataFrame(
+            {"cluster": adata.obs["cluster"].astype(str)},
+            index=adata.obs_names.copy(),
+        ),
+        var=adata.var.loc[keep_genes].copy(),
+    )
     clusters = sorted(
         marker_adata.obs["cluster"].unique(),
         key=lambda cluster: (
@@ -151,10 +156,11 @@ def _write_cluster_marker_outputs(
         index=False,
     )
     adata.uns["cluster_marker_degs"] = markers_df
+    expression_source = "layers/log1p" if "log1p" in adata.layers else "X"
     adata.uns["cluster_marker_degs_params"] = {
         "groupby": "cluster",
         "method": "wilcoxon",
-        "expression_layer": "log1p",
+        "expression_layer": expression_source,
         "pval_cutoff": 0.05,
         "log2fc_min": 0.25,
         "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
@@ -181,7 +187,7 @@ def _write_cluster_marker_outputs(
         "included_gene_count": int(keep_genes.sum()),
         "excluded_gene_count": int((~keep_genes).sum()),
         "excluded_prefixes": ["MT-", "RPS", "RPL", "MTRNR"],
-        "expression_layer": "log1p",
+        "expression_layer": expression_source,
         "pval_cutoff": 0.05,
         "log2fc_min": 0.25,
         "marker_top_n": marker_top_n,
@@ -189,7 +195,7 @@ def _write_cluster_marker_outputs(
     }
 
 
-@custom_task(cpu=4, memory=128, storage_gib=1000)
+@custom_task(cpu=4, memory=256, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
@@ -227,17 +233,26 @@ def preprocess_wt_task(
     sc.settings.figdir = str(figures_dir)
 
     logging.info("Creating AnnData objects...")
-    adatas = pp.make_anndatas(runs, genome_str)
+    adatas = pp.make_anndatas(
+        runs,
+        genome_str,
+        include_spatial_images=False,
+    )
     samples = [run.run_id for run in runs]
+    spatial_metadata = {}
+    for sample_adata in adatas:
+        spatial_metadata.update(sample_adata.uns.get("spatial", {}))
+
     if len(samples) > 1:
         logging.info("Combining objects...")
         adata = ad.concat(adatas, keys=samples, label="batch")
     else:
         adata = adatas[0]
 
-    adata.uns["spatial"] = {}
-    for sample_adata in adatas:
-        adata.uns["spatial"].update(sample_adata.uns.get("spatial", {}))
+    adata.uns["spatial"] = spatial_metadata
+    del adatas
+    gc.collect()
+    pp.log_matrix_storage(adata, "After sample concatenation")
 
     pp.calculate_qc(adata, genome_str)
 
@@ -258,6 +273,7 @@ def preprocess_wt_task(
         max_counts=max_counts,
         max_pct_mt=max_pct_mt,
     )
+    pp.log_matrix_storage(adata, "After cell and gene filtering")
 
     sc.pl.violin(
         adata,
@@ -283,17 +299,32 @@ def preprocess_wt_task(
             data={"title": "spatial coherence skipped", "body": warning},
         )
 
+    # Preserve one sparse raw-count matrix for downstream count-aware tools.
+    # Log-normalized expression remains in X, so this does not reintroduce the
+    # full-gene dense scaling that caused the original memory failure.
     adata.layers["counts"] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
-    adata.layers["normalized"] = adata.X.copy()
     sc.pp.log1p(adata)
-    adata.layers["log1p"] = adata.X.copy()
     pp.select_highly_variable_genes(
         adata,
         n_top_genes=n_top_genes,
         flavor=hvg_flavor,
     )
-    sc.pp.scale(adata, zero_center=True, max_value=10)
+    if sp.issparse(adata.layers["counts"]):
+        adata.layers["counts"] = (
+            adata.layers["counts"].tocsr().astype("float32", copy=False)
+        )
+    else:
+        adata.layers["counts"] = adata.layers["counts"].astype(
+            "float32",
+            copy=False,
+        )
+    if sp.issparse(adata.X):
+        adata.X = adata.X.tocsr().astype("float32", copy=False)
+    else:
+        adata.X = adata.X.astype("float32", copy=False)
+    gc.collect()
+    pp.log_matrix_storage(adata, "Final sparse log1p preprocessing matrix")
 
     preprocessed_path = out_dir / "preprocessed.h5ad"
     adata.write(preprocessed_path)
@@ -724,10 +755,17 @@ def wtOpt_task(
                 data={"title": "spatial coherence failed", "body": warning},
             )
 
-    effective_pt_size = pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
-    if has_spatial_graph and "log1p" in adata.layers:
+    effective_pt_size = (
+        pt_size if pt_size is not None else utils.pt_sizes[channels]["dim"]
+    )
+    if has_spatial_graph:
         try:
-            svg_df = pp.run_spatial_autocorr(adata, layer="log1p", n_jobs=4)
+            expression_source = "log1p" if "log1p" in adata.layers else "X"
+            svg_df = pp.run_spatial_autocorr(
+                adata,
+                layer=expression_source,
+                n_jobs=4,
+            )
             svg_df.to_csv(out_dir / "svg_genes.csv")
             pl.plot_svg_spatial(
                 adata,
@@ -735,7 +773,7 @@ def wtOpt_task(
                 str(figures_dir / "svg_spatial.png"),
                 top_n=10,
                 pt_size=effective_pt_size,
-                layer="log1p",
+                layer=expression_source,
                 html_output_path=str(out_dir / "svg_spatial.html"),
             )
         except Exception as e:

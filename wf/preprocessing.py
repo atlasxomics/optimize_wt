@@ -3,7 +3,6 @@ import importlib
 import anndata
 import scanpy as sc
 import logging
-import matplotlib.image as mpimg
 import numpy as np
 import squidpy as sq
 
@@ -69,6 +68,36 @@ GEX_FILE_GROUPS = {
     "gene table": GENE_TABLE_CANDIDATES,
     "barcode file": BARCODE_CANDIDATES,
 }
+
+
+def log_matrix_storage(adata: anndata.AnnData, stage: str) -> None:
+    """Log the shape and storage owned by X without materializing it."""
+
+    if sp.issparse(adata.X):
+        matrix = adata.X
+        storage_bytes = (
+            matrix.data.nbytes
+            + matrix.indices.nbytes
+            + matrix.indptr.nbytes
+        )
+        stored_elements = matrix.nnz
+        storage = "sparse"
+    else:
+        matrix = np.asarray(adata.X)
+        storage_bytes = matrix.nbytes
+        stored_elements = matrix.size
+        storage = "dense"
+
+    logging.info(
+        "%s: X shape=%s, dtype=%s, format=%s, stored elements=%d, "
+        "storage=%.2f GiB.",
+        stage,
+        adata.shape,
+        adata.X.dtype,
+        storage,
+        stored_elements,
+        storage_bytes / (1024 ** 3),
+    )
 
 
 def _resolve_local_file(
@@ -240,7 +269,10 @@ def _read_count_matrix(
     n_genes: int
 ) -> sp.csr_matrix:
     matrix_path = _resolve_local_file(gex_dir, MTX_CANDIDATES)
-    matrix = sp.csr_matrix(sio.mmread(str(matrix_path)))
+    # STAR matrices can be emitted as float64 even though downstream Scanpy
+    # operations use float32. Converting once here halves the resident size of
+    # every sample matrix and avoids carrying float64 through concatenation.
+    matrix = sp.csr_matrix(sio.mmread(str(matrix_path)), dtype=np.float32)
 
     if matrix.shape == (n_genes, n_barcodes):
         return matrix.T.tocsr()
@@ -315,7 +347,7 @@ def _ensure_rgb(image: np.ndarray) -> np.ndarray:
     return image
 
 
-def _load_spatial_assets(run: Run) -> dict:
+def _load_spatial_assets(run: Run, include_images: bool = False) -> dict:
     """Load optional tissue images and scalefactors for image-backed plots."""
 
     spatial_uns: dict = {}
@@ -325,20 +357,29 @@ def _load_spatial_assets(run: Run) -> dict:
         with open(scale_factor_path, "r", encoding="utf-8") as handle:
             spatial_uns["scalefactors"] = json.load(handle)
 
-    images = {}
-    for image_key, candidates in SPATIAL_IMAGE_FILES.items():
-        image_path = _resolve_optional_spatial_file(run, candidates)
-        if image_path is None:
-            continue
-        images[image_key] = _ensure_rgb(mpimg.imread(str(image_path)))
+    # Full-resolution images expand to large float32 RGB arrays and would be
+    # copied into every intermediate and parameter-set H5AD. Current workflow
+    # plots use coordinates, so keep them out of the analysis object by default.
+    if include_images:
+        import matplotlib.image as mpimg
 
-    if len(images) > 0:
-        spatial_uns["images"] = images
+        images = {}
+        for image_key, candidates in SPATIAL_IMAGE_FILES.items():
+            image_path = _resolve_optional_spatial_file(run, candidates)
+            if image_path is None:
+                continue
+            images[image_key] = _ensure_rgb(mpimg.imread(str(image_path)))
+
+        if len(images) > 0:
+            spatial_uns["images"] = images
 
     return spatial_uns
 
 
-def _load_run_adata(run: Run) -> anndata.AnnData:
+def _load_run_adata(
+    run: Run,
+    include_spatial_images: bool = False,
+) -> anndata.AnnData:
     gex_dir = Path(run.gex_dir.local_path)
     _validate_gex_dir(run)
     gene_table = _read_gene_table(gex_dir)
@@ -387,7 +428,10 @@ def _load_run_adata(run: Run) -> anndata.AnnData:
         ),
     )
 
-    spatial_uns = _load_spatial_assets(run)
+    spatial_uns = _load_spatial_assets(
+        run,
+        include_images=include_spatial_images,
+    )
     if len(spatial_uns) > 0:
         adata.uns["spatial"] = {run.run_id: spatial_uns}
 
@@ -450,22 +494,30 @@ def select_highly_variable_genes(
             "features from HVG selection."
         )
 
-    adata_hvg = adata[:, allowed].copy()
-
+    allowed_mask = allowed.to_numpy()
     if flavor in {"seurat_v3", "seurat_v3_paper"}:
         if "counts" not in adata.layers:
             raise ValueError(
                 f"hvg_flavor='{flavor}' requires `adata.layers['counts']` to be "
                 "available."
             )
-        adata_hvg.X = adata.layers["counts"][:, allowed].copy()
+        hvg_matrix = adata.layers["counts"][:, allowed_mask].copy()
     else:
-        if "log1p" not in adata.layers:
-            raise ValueError(
-                f"hvg_flavor='{flavor}' requires `adata.layers['log1p']` to be "
-                "available."
-            )
-        adata_hvg.X = adata.layers["log1p"][:, allowed].copy()
+        # The lean preprocessed representation stores log1p expression in X.
+        # Accept the legacy layer as a fallback for older intermediates.
+        source = adata.layers["log1p"] if "log1p" in adata.layers else adata.X
+        hvg_matrix = source[:, allowed_mask].copy()
+
+    # Construct a minimal temporary object instead of slicing the complete
+    # AnnData, which would also copy layers, graphs, embeddings, and `uns`.
+    hvg_obs = pd.DataFrame(index=adata.obs_names.copy())
+    if "sample" in adata.obs:
+        hvg_obs["sample"] = adata.obs["sample"].copy()
+    adata_hvg = anndata.AnnData(
+        X=hvg_matrix,
+        obs=hvg_obs,
+        var=adata.var.loc[allowed].copy(),
+    )
 
     batch_key = "sample" if "sample" in adata_hvg.obs.columns else None
     sc.pp.highly_variable_genes(
@@ -535,13 +587,36 @@ def add_clusters(
     """Perform dimensionality reduction, batch correction, umap, clustering.
     """
 
-    # Dimensionality reduction
+    if "highly_variable" not in adata.var:
+        raise KeyError("PCA requires adata.var['highly_variable'].")
+
+    hvg_mask = adata.var["highly_variable"].to_numpy(dtype=bool)
+    if not hvg_mask.any():
+        raise ValueError("PCA requires at least one highly variable gene.")
+
+    # Scaling the complete cells-by-genes matrix was the main preprocessing
+    # memory spike. Scale only the selected HVGs in a temporary object, then
+    # copy the compact PCA results back to the full sparse AnnData.
+    pca_adata = anndata.AnnData(
+        X=adata.X[:, hvg_mask].copy(),
+        obs=pd.DataFrame(index=adata.obs_names.copy()),
+        var=pd.DataFrame(index=adata.var_names[hvg_mask].copy()),
+    )
+    sc.pp.scale(pca_adata, zero_center=True, max_value=10)
     sc.tl.pca(
-        adata,
+        pca_adata,
         n_comps=n_comps,
-        use_highly_variable=True,
         random_state=random_state
     )
+    adata.obsm["X_pca"] = pca_adata.obsm["X_pca"].copy()
+    adata.uns["pca"] = pca_adata.uns["pca"].copy()
+    full_loadings = np.zeros(
+        (adata.n_vars, pca_adata.varm["PCs"].shape[1]),
+        dtype=pca_adata.varm["PCs"].dtype,
+    )
+    full_loadings[hvg_mask] = pca_adata.varm["PCs"]
+    adata.varm["PCs"] = full_loadings
+    del pca_adata
     if pca_plot:
         sc.pl.pca_variance_ratio(adata, n_pcs=n_comps, save=f"_{n_comps}_elbow")
 
@@ -602,7 +677,10 @@ def _merge_small_clusters(
         nearest_label = remaining_labels[int(np.argmin(distances))]
         labels[labels == smallest_label] = nearest_label
 
-    remap = {old_label: new_label for new_label, old_label in enumerate(np.unique(labels))}
+    remap = {
+        old_label: new_label
+        for new_label, old_label in enumerate(np.unique(labels))
+    }
     return np.array([remap[label] for label in labels], dtype=int)
 
 
@@ -630,13 +708,12 @@ def train_stagate_embedding(
         raise ValueError(
             "STAGATE backend requires `adata.var['highly_variable']` to be set."
         )
-    if "log1p" not in adata.layers:
-        raise ValueError(
-            "STAGATE backend requires `adata.layers['log1p']` to be available."
-        )
-
     adata_st = adata[:, adata.var["highly_variable"]].copy()
-    adata_st.X = adata_st.layers["log1p"].copy()
+    if "log1p" in adata_st.layers:
+        adata_st.X = adata_st.layers["log1p"].copy()
+    # STAGATE trains from log1p X only; do not carry the retained count layer
+    # through the model workspace.
+    adata_st.layers.clear()
 
     if "sample" in adata_st.obs.columns:
         nets = []
@@ -864,7 +941,8 @@ def run_spatial_autocorr(
     if "spatial_connectivities" not in adata.obsp:
         add_spatial_neighbors(adata)
 
-    if layer not in adata.layers:
+    use_x = layer == "X"
+    if not use_x and layer not in adata.layers:
         raise KeyError(
             f"Layer '{layer}' not found in AnnData. Available: "
             f"{list(adata.layers.keys())}."
@@ -891,7 +969,7 @@ def run_spatial_autocorr(
         adata,
         mode="moran",
         genes=test_genes,
-        layer=layer,
+        layer=None if use_x else layer,
         n_perms=None,
         n_jobs=n_jobs,
     )
@@ -931,7 +1009,11 @@ def filter_adata(
 
     # Filter 'off tissue' tixels
     try:
-        adata = adata[adata.obs["on_off"] == 1].copy()
+        in_tissue = adata.obs["on_off"] == 1
+        # `_load_run_adata` already selects in-tissue barcodes. Avoid copying
+        # the complete combined matrix when the mask would retain every row.
+        if not bool(in_tissue.all()):
+            adata = adata[in_tissue].copy()
     except KeyError as e:
         logging.warning(
             f"Exception {e}: no positions data found in AnnData.obs"
@@ -962,9 +1044,19 @@ def filter_adata(
     return adata
 
 
-def make_anndatas(runs: List[Run], genome: str) -> List[anndata.AnnData]:
+def make_anndatas(
+    runs: List[Run],
+    genome: str,
+    include_spatial_images: bool = False,
+) -> List[anndata.AnnData]:
     """Basic preprocessing for scanpy analysis; converts raw/ gex dir into a
     list of AnnData objects. QCs, metadata and spatial data are stored in
     AnnData.obs.
     """
-    return [_load_run_adata(run) for run in runs]
+    return [
+        _load_run_adata(
+            run,
+            include_spatial_images=include_spatial_images,
+        )
+        for run in runs
+    ]

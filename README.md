@@ -137,8 +137,8 @@ contains:
   embeddings, metadata, layers, and clustering results for that parameter set.
 - `combined_sm.h5ad`: reduced AnnData object for lightweight review and launch
   plotting. It keeps the UMAP, spatial coordinates, cluster/sample metadata,
-  and a compact expression matrix while dropping large QC and intermediate
-  fields.
+  a compact log1p expression matrix in `X`, and sparse raw counts in
+  `layers["counts"]` while dropping large QC and intermediate fields.
 - `Launch_Plots/artifact.json`: Latch plot artifact metadata that points to the
   reduced AnnData object.
 - `deg_clusters.csv`: optional cluster marker table when
@@ -154,7 +154,12 @@ Intermediate task outputs are stored under `_intermediates/`:
 
 - `_intermediates/preprocess/preprocessed.h5ad`: filtered, normalized,
   log-transformed, HVG-selected AnnData object used as input to optimization
-  jobs.
+  jobs. Log1p expression is stored once as a sparse float32 matrix in `X`, and
+  raw counts are retained as a sparse float32 `layers["counts"]` matrix for
+  count-aware downstream tools. Redundant normalized and duplicate log1p
+  layers are not retained. Tissue images are also omitted from this
+  intermediate because workflow plots use spatial coordinates rather than
+  image overlays.
 - `_intermediates/preprocess/figures/`: pre- and post-filtering QC violin plots
   from preprocessing.
 - `_intermediates/stagate_preprocess/preprocessed.h5ad`: STAGATE-embedded
