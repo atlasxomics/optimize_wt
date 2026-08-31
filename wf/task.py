@@ -23,9 +23,9 @@ from latch.types.plots import (
 )
 
 try:
-    from latch.resources.tasks import g6e_2xlarge_task as stagate_gpu_task
+    from latch.resources.tasks import g6e_xlarge_task as stagate_gpu_task
 except ImportError:
-    from latch.resources.tasks import large_gpu_task as stagate_gpu_task
+    from latch.resources.tasks import small_gpu_task as stagate_gpu_task
 
 import wf.features as features
 import wf.plotting as pl
@@ -196,7 +196,7 @@ def _write_cluster_marker_outputs(
     }
 
 
-@custom_task(cpu=4, memory=256, storage_gib=1000)
+@custom_task(cpu=4, memory=16, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
     genome: utils.Genome,
