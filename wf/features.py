@@ -208,7 +208,7 @@ def make_small_anndata(
 
     add_spatial_offset(out)
 
-    keep_obsm = {"spatial_offset", "X_umap"}
+    keep_obsm = {"spatial", "spatial_offset", "X_umap"}
     for key in list(out.obsm.keys()):
         if key not in keep_obsm:
             del out.obsm[key]

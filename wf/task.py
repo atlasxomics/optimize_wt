@@ -707,6 +707,24 @@ def wtOpt_task(
 
         logging.info("Aggregating parameter set sequentially: %s", result.set_str)
         set_adata = ad.read_h5ad(combined_path)
+        # Older reduced objects omit raw per-sample spatial coordinates. Restore
+        # them from the shared preprocessed object so sequential aggregation can
+        # still produce spatial pages. New reduced objects retain this field.
+        if "spatial" not in set_adata.obsm and "spatial" in adata.obsm:
+            base_spatial = pd.DataFrame(
+                adata.obsm["spatial"],
+                index=adata.obs_names,
+            ).reindex(set_adata.obs_names)
+            if base_spatial.isna().to_numpy().any():
+                logging.warning(
+                    "Unable to align spatial coordinates for %s.",
+                    result.set_str,
+                )
+            else:
+                set_adata.obsm["spatial"] = base_spatial.to_numpy()
+        if "spatial" not in set_adata.uns and "spatial" in adata.uns:
+            set_adata.uns["spatial"] = adata.uns["spatial"]
+
         # Final set-level summaries only need obs, UMAP, and spatial metadata.
         # Release both expression matrices before per-sample plotting creates
         # temporary AnnData subsets.
