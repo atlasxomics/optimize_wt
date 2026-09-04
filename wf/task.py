@@ -525,6 +525,40 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
                 random_state=RANDOM_STATE,
             )
 
+        try:
+            pp.run_neighborhood_enrichment(
+                adata,
+                cluster_key="cluster",
+                library_key="sample",
+            )
+        except Exception as e:
+            adata.uns.pop("cluster_nhood_enrichment", None)
+            logging.warning(
+                "Neighborhood enrichment failed for %s: %s",
+                set_str,
+                e,
+            )
+        else:
+            neighborhood_group_keys = [
+                key
+                for key in ("sample", "condition")
+                if key in adata.obs and adata.obs[key].dropna().nunique() > 1
+            ]
+            try:
+                pp.precompute_grouped_nhood_enrichment(
+                    adata,
+                    group_keys=neighborhood_group_keys,
+                    cluster_key="cluster",
+                    library_key="sample",
+                )
+            except Exception as e:
+                adata.uns.pop(pp.GROUPED_NHOOD_ENRICHMENT_KEY, None)
+                logging.warning(
+                    "Grouped neighborhood enrichment failed for %s: %s",
+                    set_str,
+                    e,
+                )
+
         if job.compute_cluster_markers:
             try:
                 _write_cluster_marker_outputs(
@@ -685,6 +719,8 @@ def wtOpt_task(
     umap_captions: List[str] = []
     spatial_image_paths: List[str] = []
     spatial_captions: List[str] = []
+    neighborhood_image_paths: List[str] = []
+    neighborhood_captions: List[str] = []
     coherence_rows = []
     processed_set_count = 0
 
@@ -725,9 +761,9 @@ def wtOpt_task(
         if "spatial" not in set_adata.uns and "spatial" in adata.uns:
             set_adata.uns["spatial"] = adata.uns["spatial"]
 
-        # Final set-level summaries only need obs, UMAP, and spatial metadata.
-        # Release both expression matrices before per-sample plotting creates
-        # temporary AnnData subsets.
+        # Final set-level summaries only need obs, UMAP/spatial metadata, and
+        # the small neighborhood matrices in uns. Release both expression
+        # matrices before per-sample plotting creates temporary AnnData subsets.
         set_adata.layers.clear()
         set_adata.raw = None
         set_adata.X = None
@@ -772,6 +808,27 @@ def wtOpt_task(
             except Exception as e:
                 logging.warning(
                     "Spatial aggregation failed for %s: %s",
+                    result.set_str,
+                    e,
+                )
+
+            try:
+                neighborhood_path = (
+                    figures_dir / f"{set_stem}_neighborhood.png"
+                )
+                plotted = pl.plot_neighborhood_enrichment(
+                    set_adata,
+                    str(neighborhood_path),
+                    title=f"{result.set_str}: Neighborhood enrichment",
+                )
+                if plotted:
+                    neighborhood_image_paths.append(str(neighborhood_path))
+                    neighborhood_captions.append(
+                        f"Set: {result.set_str}"
+                    )
+            except Exception as e:
+                logging.warning(
+                    "Neighborhood enrichment plotting failed for %s: %s",
                     result.set_str,
                     e,
                 )
@@ -822,7 +879,7 @@ def wtOpt_task(
     if processed_set_count == 0:
         warning = (
             "No successful parameter-set objects were available; skipping "
-            "UMAP/spatial summary plots."
+            "UMAP, spatial, and neighborhood summary plots."
         )
         logging.warning(warning)
         message(
@@ -846,6 +903,13 @@ def wtOpt_task(
             image_paths=spatial_image_paths,
             captions=spatial_captions,
             html_output_path=str(out_dir / "all_spatialdim.html"),
+        )
+        pl.write_html_gallery(
+            str(figures_dir / "all_neighborhoods.png"),
+            title="Neighborhood Enrichment by Parameter Set",
+            image_paths=neighborhood_image_paths,
+            captions=neighborhood_captions,
+            html_output_path=str(out_dir / "all_neighborhoods.html"),
         )
 
     if len(coherence_rows) > 0:

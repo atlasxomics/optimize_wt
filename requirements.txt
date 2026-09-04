@@ -5,4 +5,5 @@ matplotlib==3.8.3
 pandas==2.1.1
 scikit-misc==0.3.1
 scanpy==1.10.2
+seaborn==0.13.2
 squidpy==1.6.0

@@ -315,8 +315,10 @@ def wtOpt_workflow(
        - a STAGATE embedding (`clustering_backend="stagate"`).
     5. Iterates over clustering parameter sets in parallel and writes
        `combined.h5ad` plus a reduced `combined_sm.h5ad` per successful set.
-    6. Aggregates UMAPs, spatial plots, medians, and spatial coherence scores
-       into the final output directory.
+    6. Computes Squidpy neighborhood enrichment for every successful
+       clustering set.
+    7. Aggregates UMAPs, spatial plots, neighborhood heatmaps, medians, and
+       spatial coherence scores into the final output directory.
 
     ## Input Requirements
 
@@ -400,6 +402,8 @@ def wtOpt_workflow(
       by cluster and, when applicable, sample and condition.
     - `all_spatialdim.html`: spatial cluster plots for each successful
       parameter set and sample.
+    - `all_neighborhoods.html`: Squidpy neighborhood-enrichment heatmaps for
+      each successful parameter set with at least two clusters.
     - `spatial_qc.html`: spatial plots of QC metrics such as total counts,
       detected genes, and mitochondrial percentage.
     - `svg_spatial.html`: spatial expression plots for the top spatially
@@ -407,8 +411,8 @@ def wtOpt_workflow(
 
     Static figures are written under `figures/` and mirror the interactive HTML
     outputs where possible. This directory can include UMAP summaries, spatial
-    cluster summaries, spatial QC plots, spatial coherence plots, and spatially
-    variable gene plots.
+    cluster summaries, neighborhood-enrichment heatmaps, spatial QC plots,
+    spatial coherence plots, and spatially variable gene plots.
 
     Each successful parameter set also gets its own subdirectory named with the
     backend and parameter values, for example
@@ -416,12 +420,14 @@ def wtOpt_workflow(
     contains:
 
     - `combined.h5ad`: full AnnData object with the clustered cells/spots,
-      embeddings, metadata, layers, and clustering results for that parameter
-      set.
+      embeddings, metadata, layers, clustering results, and Squidpy
+      neighborhood enrichment matrices for that parameter set, including
+      precomputed sample and condition subsets when those groups have multiple
+      values.
     - `combined_sm.h5ad`: reduced AnnData object for lightweight review and
       launch plotting. It keeps the UMAP, spatial coordinates, cluster/sample
-      metadata, and a compact expression matrix while dropping large QC and
-      intermediate fields.
+      metadata, a compact expression matrix, and the neighborhood enrichment
+      matrices while dropping large QC and intermediate fields.
     - `Launch_Plots/artifact.json`: Latch plot artifact metadata that points to
       the reduced AnnData object.
     - `deg_clusters.csv`: optional cluster marker table when
