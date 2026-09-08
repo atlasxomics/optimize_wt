@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from latch import map_task
+from latch import create_conditional_section, map_task
 from latch.resources.workflow import workflow
 from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule, Params, Section, Spoiler, Text)
@@ -483,12 +483,22 @@ def wtOpt_workflow(
         normalize_target_sum=normalize_target_sum,
     )
 
-    clustering_preprocess_dir = train_stagate_task(
-        preprocessed_dir=preprocess_dir,
-        project_name=project_name,
-        clustering_backend=clustering_backend,
-        stagate_k_cutoff=stagate_k_cutoff,
-        apply_harmony=apply_harmony,
+    # Keep this decision in the workflow graph. A guard inside the GPU task
+    # still requires Latch to provision a GPU worker before it can skip.
+    clustering_preprocess_dir = (
+        create_conditional_section("train-stagate-if-requested")
+        .if_(clustering_backend == "stagate")
+        .then(
+            train_stagate_task(
+                preprocessed_dir=preprocess_dir,
+                project_name=project_name,
+                clustering_backend=clustering_backend,
+                stagate_k_cutoff=stagate_k_cutoff,
+                apply_harmony=apply_harmony,
+            )
+        )
+        .else_()
+        .then(preprocess_dir)
     )
 
     opt_jobs = build_wt_opt_jobs_task(
