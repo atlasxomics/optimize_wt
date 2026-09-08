@@ -6,7 +6,8 @@ from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
                                   LatchRule, Params, Section, Spoiler, Text)
 
 from wf.task import (build_wt_opt_jobs_task, opt_set_task, preprocess_wt_task,
-                     train_stagate_task, wtOpt_task)
+                     reuse_preprocessed_dir_task, train_stagate_task,
+                     wtOpt_task)
 from atx_common import Genome
 from wf.utils import Run
 
@@ -498,7 +499,7 @@ def wtOpt_workflow(
             )
         )
         .else_()
-        .then(preprocess_dir)
+        .then(reuse_preprocessed_dir_task(preprocessed_dir=preprocess_dir))
     )
 
     opt_jobs = build_wt_opt_jobs_task(

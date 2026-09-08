@@ -349,6 +349,18 @@ def preprocess_wt_task(
     )
 
 
+@custom_task(cpu=1, memory=1, storage_gib=10)
+def reuse_preprocessed_dir_task(preprocessed_dir: LatchDir) -> LatchDir:
+    """Forward preprocessing output through a schedulable conditional arm.
+
+    LatchDir inputs are lazy, and this task deliberately does not access
+    ``local_path``, so the preprocessing directory is not downloaded or copied.
+    """
+
+    logging.info("Reusing preprocessing output for non-STAGATE clustering.")
+    return preprocessed_dir
+
+
 @stagate_gpu_task
 def train_stagate_task(
     preprocessed_dir: LatchDir,
