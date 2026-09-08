@@ -33,8 +33,8 @@ import wf.preprocessing as pp
 import wf.utils as utils
 
 RANDOM_STATE = 42
-PLOTS_ARTIFACT_TEMPLATE_ID = "1257"
-PLOTS_ARTIFACT_DATA_TRANSFORM_ID = "462483"
+PLOTS_ARTIFACT_TEMPLATE_ID = "1562"
+PLOTS_ARTIFACT_DATA_TRANSFORM_ID = "492688"
 
 logging.basicConfig(
     format="%(levelname)s - %(asctime)s - %(message)s",
