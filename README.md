@@ -191,3 +191,31 @@ Intermediate task outputs are stored under `_intermediates/`:
 - For multi-sample runs, sample IDs are preserved from the supplied `run_id`
   values and are used in downstream plotting and batch handling.
 - STAGATE runs benefit substantially from GPU availability.
+
+
+### STAGATE memory-aware training
+
+`stagate_training_mode` defaults to `auto`. On CUDA, a conservative estimate
+based on cells, selected genes, edges (including self-loops), and the default
+512/30 model dimensions selects sample batching when the estimated full-graph
+working set exceeds 80% of currently free GPU memory. This is a heuristic,
+not a guarantee. If full training nevertheless raises CUDA out-of-memory,
+`auto` releases the failed trainer and restarts from the original seed using
+sample batches when multiple samples are available. CPU auto runs use full training.
+
+Use `full` to force the existing upstream trainer without fallback, or
+`sample_batched` to force batching. Batching uses one shared model, the same
+selected genes and complete spatial graph for every sample, and cell-count
+weighted reconstruction losses. Gradients accumulate across all samples before
+one clipping operation and one Adam update per epoch. Default model dimensions,
+1,000 epochs, learning rate, and weight decay match the upstream trainer.
+Inference also runs by sample without gradients and restores original cell order
+before the existing Harmony step. Floating-point results may differ from full
+training; additional transfers may increase runtime.
+
+The log reports the estimated full working set, available GPU memory, and selected
+mode. The output AnnData records requested and actual modes in
+`uns["stagate_training"]`. Batching does not divide a single sample's graph: if
+one sample is too large, reduce `n_top_genes` or use a larger GPU. Missing sample
+labels and cross-sample graph edges are rejected rather than silently dropping
+cells or connections.

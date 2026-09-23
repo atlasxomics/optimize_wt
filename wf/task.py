@@ -355,6 +355,7 @@ def train_stagate_task(
     project_name: str,
     clustering_backend: str = "scanpy",
     stagate_k_cutoff: int = 6,
+    stagate_training_mode: str = "auto",
     apply_harmony: bool = True,
 ) -> LatchDir:
     if clustering_backend not in pp.ALLOWED_CLUSTERING_BACKENDS:
@@ -379,6 +380,7 @@ def train_stagate_task(
         k_cutoff=stagate_k_cutoff,
         apply_harmony=apply_harmony,
         random_state=RANDOM_STATE,
+        training_mode=stagate_training_mode,
     )
 
     out_dir = Path(f"/root/{project_name}_stagate_preprocess")
@@ -622,6 +624,7 @@ def wtOpt_task(
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
     stagate_k_cutoff: int = 6,
+    stagate_training_mode: str = "auto",
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     min_dist: float = 0.5,
@@ -667,6 +670,7 @@ def wtOpt_task(
         "n_top_genes": n_top_genes,
         "hvg_flavor": hvg_flavor,
         "stagate_k_cutoff": stagate_k_cutoff,
+        "stagate_training_mode": stagate_training_mode,
         "n_neighbors": n_neighbors,
         "clustering_backend": clustering_backend,
         "apply_harmony": apply_harmony,

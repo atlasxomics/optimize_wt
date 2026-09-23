@@ -15,6 +15,7 @@ from scipy import sparse as sp
 
 from atx_common import get_LatchFile, sanitize_condition
 from wf.utils import Run
+from wf.stagate_training import TRAINING_MODES, train_embedding
 
 
 logging.basicConfig(
@@ -701,8 +702,12 @@ def train_stagate_embedding(
     k_cutoff: int = 6,
     apply_harmony: bool = True,
     random_state: int = 0,
+    training_mode: str = "auto",
 ) -> anndata.AnnData:
     """Train STAGATE once on HVG log-normalized expression and store embedding."""
+
+    if training_mode not in TRAINING_MODES:
+        raise ValueError(f"STAGATE training mode must be one of {TRAINING_MODES}.")
 
     STAGATE_pyG = require_stagate_module()
 
@@ -740,23 +745,14 @@ def train_stagate_embedding(
 
     STAGATE_pyG.Stats_Spatial_Net(adata_st)
 
-    train_kwargs = {
-        "random_seed": random_state,
-        "save_loss": False,
+    embedding, actual_mode = train_embedding(
+        adata_st, STAGATE_pyG, training_mode=training_mode, random_seed=random_state
+    )
+    adata.obsm["X_stagate"] = embedding
+    adata.uns["stagate_training"] = {
+        "requested_mode": training_mode,
+        "actual_mode": actual_mode,
     }
-    try:
-        import torch
-
-        train_kwargs["device"] = (
-            torch.device("cuda")
-            if torch.cuda.is_available()
-            else torch.device("cpu")
-        )
-    except Exception:
-        pass
-
-    adata_st = STAGATE_pyG.train_STAGATE(adata_st, **train_kwargs)
-    adata.obsm["X_stagate"] = adata_st.obsm["STAGATE"].copy()
     adata.obsm["X_stagate_raw"] = adata.obsm["X_stagate"].copy()
 
     n_runs = 1

@@ -47,7 +47,7 @@ flow = [
                 "STAGATE-specific options only affect runs where the clustering "
                 "backend is set to `stagate`."
             ),
-            Params("stagate_k_cutoff"),
+            Params("stagate_k_cutoff", "stagate_training_mode"),
         ),
     ),
     Section(
@@ -137,6 +137,18 @@ metadata = LatchMetadata(
                     message="hvg_flavor must be one of: seurat, cell_ranger, seurat_v3, seurat_v3_paper",
                 )
             ]
+        ),
+        "stagate_training_mode": LatchParameter(
+            display_name="STAGATE training mode",
+            description="auto selects full or sample-batched training based on GPU memory, "
+                "with a CUDA out-of-memory fallback. full forces the original trainer; "
+                "sample_batched accumulates gradients across complete sample graphs.",
+            batch_table_column=True,
+            hidden=True,
+            rules=[LatchRule(
+                regex="^(auto|full|sample_batched)$",
+                message="Choose auto, full, or sample_batched",
+            )],
         ),
         "stagate_k_cutoff": LatchParameter(
             display_name="STAGATE k cutoff",
@@ -279,6 +291,7 @@ def wtOpt_workflow(
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
     stagate_k_cutoff: int = 4,
+    stagate_training_mode: str = "auto",
     n_neighbors: List[int] = [15],
     clustering_backend: str = "scanpy",
     apply_harmony: bool = True,
@@ -364,6 +377,7 @@ def wtOpt_workflow(
     - `compute_cluster_markers`: rank marker genes for each cluster
     - `marker_top_n`: top marker genes per cluster for marker tables/heatmaps
     - `stagate_k_cutoff`: KNN graph size used when training STAGATE
+    - `stagate_training_mode`: auto (default), full, or sample_batched
     - `pt_size`, `qc_pt_size`: optional spatial plot size overrides
 
     ## Backend Behavior
@@ -488,6 +502,7 @@ def wtOpt_workflow(
         project_name=project_name,
         clustering_backend=clustering_backend,
         stagate_k_cutoff=stagate_k_cutoff,
+        stagate_training_mode=stagate_training_mode,
         apply_harmony=apply_harmony,
     )
 
@@ -518,6 +533,7 @@ def wtOpt_workflow(
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
         stagate_k_cutoff=stagate_k_cutoff,
+        stagate_training_mode=stagate_training_mode,
         n_neighbors=n_neighbors,
         clustering_backend=clustering_backend,
         apply_harmony=apply_harmony,
