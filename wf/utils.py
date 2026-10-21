@@ -7,10 +7,8 @@ from latch.types import LatchDir
 
 # Shared AtlasXomics utilities — re-exported for `import wf.utils as utils`
 from atx_common import (  # noqa: F401
-    Genome,
     filter_anndata,
     get_channels,
-    get_genome_fasta,
     get_groups,
     get_LatchFile,
     pt_sizes,
@@ -21,26 +19,6 @@ from atx_common import (  # noqa: F401
 logging.basicConfig(
     format="%(levelname)s - %(asctime)s - %(message)s", level=logging.INFO
 )
-
-
-# ---------------------------------------------------------------------------
-# Workflow-specific reference data (kept local due to typo in key name
-# that downstream code may depend on)
-# ---------------------------------------------------------------------------
-gene_keys = {
-    "mitochondiral": {
-        "hg38": "MT-",
-        "mm10": ("Mt-", "mt-"),
-        "mm39": ("Mt-", "mt-"),
-        "rnor6": ("Mt-", "mt-"),
-    },
-    "ribosomal": {
-        "hg38": ("RPS", "RPL"),
-        "mm10": ("Rps", "Rpl"),
-        "mm39": ("Rps", "Rpl"),
-        "rnor6": ("Rps", "Rpl"),
-    },
-}
 
 
 # ---------------------------------------------------------------------------

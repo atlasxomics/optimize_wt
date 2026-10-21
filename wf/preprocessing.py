@@ -441,7 +441,7 @@ def _load_run_adata(
     return adata
 
 
-def annotate_biotypes(adata: anndata.AnnData, genome: str) -> None:
+def annotate_biotypes(adata: anndata.AnnData) -> None:
     """Annotate common RNA biotypes from gene symbols."""
 
     gene_names = pd.Index(adata.var_names.astype(str))
@@ -1173,8 +1173,8 @@ def run_spatial_autocorr(
     return adata.uns["moranI"].sort_values("I", ascending=False)
 
 
-def calculate_qc(adata: anndata.AnnData, genome: str) -> None:
-    annotate_biotypes(adata, genome)
+def calculate_qc(adata: anndata.AnnData) -> None:
+    annotate_biotypes(adata)
 
     sc.pp.calculate_qc_metrics(
         adata,
@@ -1242,7 +1242,6 @@ def filter_adata(
 
 def make_anndatas(
     runs: List[Run],
-    genome: str,
     include_spatial_images: bool = False,
 ) -> List[anndata.AnnData]:
     """Basic preprocessing for scanpy analysis; converts raw/ gex dir into a

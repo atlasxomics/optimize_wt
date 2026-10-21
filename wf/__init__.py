@@ -7,7 +7,6 @@ from latch.types.metadata import (LatchAuthor, LatchMetadata, LatchParameter,
 
 from wf.task import (build_wt_opt_jobs_task, opt_set_task, preprocess_wt_task,
                      train_stagate_task, wtOpt_task)
-from atx_common import Genome
 from wf.utils import Run
 
 flow = [
@@ -22,7 +21,6 @@ flow = [
     Section(
         "Global Parameters",
         Params("project_name"),
-        Params("genome"),
         Params("clustering_backend"),
     ),
     Section(
@@ -108,11 +106,6 @@ metadata = LatchMetadata(
                     message="project name cannot start with a '/'"
                 )
             ]
-        ),
-        "genome": LatchParameter(
-            display_name="genome",
-            description="Reference genome for runs.",
-            batch_table_column=True,
         ),
         "n_comps": LatchParameter(
             display_name="number of components (scanpy only)",
@@ -284,7 +277,6 @@ metadata = LatchMetadata(
 @workflow(metadata)
 def wtOpt_workflow(
     runs: List[Run],
-    genome: Genome,
     project_name: str,
     resolution: List[float] = [1.0],
     n_comps: List[int] = [30],
@@ -352,7 +344,6 @@ def wtOpt_workflow(
 
     Global Parameters:
     - `project_name`: output folder name under `rna_analysis`
-    - `genome`: reference genome identifier
     - `clustering_backend`: choose `scanpy` or `stagate`
 
     Preprocessing Parameters:
@@ -485,7 +476,6 @@ def wtOpt_workflow(
     """
     preprocess_dir = preprocess_wt_task(
         runs=runs,
-        genome=genome,
         project_name=project_name,
         n_top_genes=n_top_genes,
         hvg_flavor=hvg_flavor,
@@ -525,7 +515,6 @@ def wtOpt_workflow(
     results = wtOpt_task(
         preprocess_dir=clustering_preprocess_dir,
         runs=runs,
-        genome=genome,
         project_name=project_name,
         results=mapped_results,
         resolution=resolution,
@@ -563,6 +552,5 @@ if __name__ == "__main__":
             spatial_dir="latch://atx-illumina.mount/Images_spatial/D2042/spatial",
             condition="None"
         )],
-        genome=Genome.mm10,
         project_name="wf_test",
     )

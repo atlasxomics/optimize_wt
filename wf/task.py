@@ -199,7 +199,6 @@ def _write_cluster_marker_outputs(
 @custom_task(cpu=4, memory=16, storage_gib=1000)
 def preprocess_wt_task(
     runs: List[utils.Run],
-    genome: utils.Genome,
     project_name: str,
     n_top_genes: int = 4000,
     hvg_flavor: str = "seurat",
@@ -233,7 +232,6 @@ def preprocess_wt_task(
         logging.warning(warning)
         message(typ="warning", data={"title": warning, "body": warning})
 
-    genome_str = genome.value
     if hvg_flavor not in pp.ALLOWED_HVG_FLAVORS:
         raise ValueError(
             f"Invalid hvg_flavor '{hvg_flavor}'. Expected one of "
@@ -249,7 +247,6 @@ def preprocess_wt_task(
     logging.info("Creating AnnData objects...")
     adatas = pp.make_anndatas(
         runs,
-        genome_str,
         include_spatial_images=False,
     )
     samples = [run.run_id for run in runs]
@@ -268,7 +265,7 @@ def preprocess_wt_task(
     gc.collect()
     pp.log_matrix_storage(adata, "After sample concatenation")
 
-    pp.calculate_qc(adata, genome_str)
+    pp.calculate_qc(adata)
 
     sc.pl.violin(
         adata,
@@ -616,7 +613,6 @@ def opt_set_task(job: utils.WTOptSetInput) -> utils.WTOptSetResult:
 def wtOpt_task(
     preprocess_dir: LatchDir,
     runs: List[utils.Run],
-    genome: utils.Genome,
     project_name: str,
     results: List[utils.WTOptSetResult],
     resolution: List[float] = [1.0],
@@ -664,7 +660,6 @@ def wtOpt_task(
 
     metadata = {
         "project_name": project_name,
-        "genome": genome.value,
         "resolution": resolution,
         "n_comps": n_comps,
         "n_top_genes": n_top_genes,

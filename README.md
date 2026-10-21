@@ -50,7 +50,6 @@ coordinate-based scatter plots rather than image overlays.
 Global Parameters:
 
 - `project_name`: output folder name under `rna_analysis`
-- `genome`: reference genome identifier
 - `clustering_backend`: choose `scanpy` or `stagate`
 
 Preprocessing Parameters:
